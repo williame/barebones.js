@@ -1,0 +1,165 @@
+<html>
+<head><title>barebones.js</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+body { border:0px;margin:0px;padding:0px; }
+#game-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px;cursor:none; }
+</style>
+<script type="text/javascript">
+
+var UI_inited = false;
+var gl, canvas, g3d_test;
+
+function start() {
+	canvas = document.getElementById("game-canvas");
+	try {
+		gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+	} catch(e) {
+		console.log("Error initializing webGL:",e);
+	}
+	if(!gl) {
+		console.log(gl);
+		alert("Unable to initialize WebGL. Your browser may not support it.");
+		return;
+	}
+  	window.onresize = function() {
+		canvas.width = canvas.offsetWidth;
+		canvas.height = canvas.offsetHeight;
+		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
+	};
+	window.onresize();
+	gl.activeTexture(gl.TEXTURE0);
+	gl.clearColor(0,0,0,1);
+	gl.enable(gl.DEPTH_TEST);
+	gl.enable(gl.BLEND);
+	gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+	gl.enable(gl.CULL_FACE);
+	gl.frontFace(gl.CCW);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BIT);
+	
+	anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
+		gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || 
+		gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic");
+	if(anisotropic)
+		max_anisotropy = gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+	
+	load_file("javascript","glutil.js",function() {
+		load_file("javascript","ui.js");
+		load_file("javascript","g3d.js",function() {
+			g3d_test = new G3D("data/test.g3d");
+			window.requestAnimFrame(loop);
+		});
+	});
+}
+
+function now() { return (new Date()).getTime(); }
+
+function loop() {
+	window.requestAnimFrame(loop);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BIT);
+	var zoom = 2,
+		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
+		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
+		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
+	g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+}
+
+var anisotropic = null, anisotropy = 0, max_anisotropy = 0, _textures = [];
+
+function set_anisotropy(anisotropy) {
+	if(!max_anisotropy) return;
+	for(var tex in _textures) {
+		tex = _textures[tex];
+		gl.bindTexture(gl.TEXTURE_2D,tex);
+		gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
+	}
+	window.anisotropy = anisotropy;
+	gl.bindTexture(gl.TEXTURE_2D,null);
+}
+
+var _loading = [], _loading_wait = null;
+
+function load_file(type,path,callback) {
+	if(_loading_wait) clearTimeout(_loading_wait);
+	_loading_wait = setTimeout(function() {
+		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
+		console.log("awaiting load of:",_loading);
+		},3000);
+	var done = function(arg) {
+		console.log("loaded",type,path,_loading);
+		_loading.splice(_loading.indexOf(path),1);
+		if(!_loading.length) clearTimeout(_loading_wait);
+		if(callback)
+			callback(arg);
+		callback = null;
+	};
+	if(type == "javascript") {
+		_loading.push(path);
+		var script = document.createElement('script');
+		script.setAttribute("type","text/javascript");
+		script.setAttribute("src",path);
+		script.async = true;
+		script.onload = function() {
+			if(!script.readyState || script.readyState == "loaded" || script.readyState == "complete")
+				done(script);
+			else
+				console.log("loading state:",type,path,script.readyState);
+		};
+		document.getElementsByTagName("head")[0].appendChild(script);
+	} else if(type == "image") {
+		var image = new Image();
+		image.onload = function() { 
+			var texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D,texture);
+			gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image);
+			if(anisotropy)
+				gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
+			gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_NEAREST);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.bindTexture(gl.TEXTURE_2D,null);
+			_textures.push(texture);
+			done(texture);
+		};
+		image.src =path;
+	} else if(type == "xml") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(doc.responseXML);
+		};
+		doc.send();
+	} else if(type == "ArrayBuffer") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.responseType = "arraybuffer";
+		doc.overrideMimeType('text/plain; charset=x-user-defined');
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(doc.response);
+		};
+		doc.send();
+	} else
+		console.log("unsupported type",type,path);
+}
+
+window.requestAnimFrame = 
+	window.requestAnimationFrame ||
+	window.webkitRequestAnimationFrame ||
+	window.mozRequestAnimationFrame ||
+	window.oRequestAnimationFrame ||
+	window.msRequestAnimationFrame ||
+	function(callback) {
+		window.setTimeout(callback, 1/60);
+	};
+</script>
+<body onload="start()">
+<noscript>
+Sorry, you don't have Javascript enabled :(
+</noscript>
+<canvas id="game-canvas">
+Sorry, you don't have webGL enabled :(
+</canvas>
+</body>
+</html>
