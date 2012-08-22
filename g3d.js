@@ -145,6 +145,7 @@ function G3D(filename) {
 			g3d.program.pMatrix = gl.getUniformLocation(g3d.program,"pMatrix");
 			g3d.program.nMatrix = gl.getUniformLocation(g3d.program,"nMatrix");
 			g3d.program.teamColour = gl.getUniformLocation(g3d.program,"teamColour");
+			g3d.program.texture = gl.getUniformLocation(g3d.program,"texture");
 		}
 		gl.useProgram(g3d.program);
 		gl.uniformMatrix4fv(g3d.program.pMatrix,false,pMatrix);

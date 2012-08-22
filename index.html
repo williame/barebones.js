@@ -31,11 +31,12 @@ function start() {
 	gl.activeTexture(gl.TEXTURE0);
 	gl.clearColor(0,0,0,1);
 	gl.enable(gl.DEPTH_TEST);
+	//gl.depthFunc(gl.???);
 	gl.enable(gl.BLEND);
 	gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 	gl.enable(gl.CULL_FACE);
 	gl.frontFace(gl.CCW);
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BIT);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	
 	anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
 		gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || 
@@ -44,7 +45,11 @@ function start() {
 		max_anisotropy = gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
 	
 	load_file("javascript","glutil.js",function() {
-		load_file("javascript","ui.js");
+		load_file("javascript","ui.js",function() {
+			var ctrl = UILabel("this is a test"),
+				win = UIWindow(true,ctrl);
+			win.show();
+		});
 		load_file("javascript","g3d.js",function() {
 			g3d_test = new G3D("data/test.g3d");
 			window.requestAnimFrame(loop);
@@ -56,12 +61,13 @@ function now() { return (new Date()).getTime(); }
 
 function loop() {
 	window.requestAnimFrame(loop);
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BIT);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	var zoom = 2,
 		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
 		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
 		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
 	g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+	if(window.drawUI) drawUI(canvas);
 }
 
 var anisotropic = null, anisotropy = 0, max_anisotropy = 0, _textures = [];

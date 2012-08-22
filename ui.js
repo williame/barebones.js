@@ -1,6 +1,6 @@
-var Windows = [], Fonts = [];
+var UIWindows = [], UIFonts = [];
 
-function Font(xml,texture) {
+function UIFont(xml,texture) {
 	var get = function (node,attr) { return parseInt(node.getAttribute(attr)); }
 	var common = xml.getElementsByTagName("common")[0];
 	this.lineHeight = get(common,"lineHeight");
@@ -71,9 +71,13 @@ function load_font(name,path,callback) {
 	var done = function() {
 		if(xml && texture) {
 			console.log("loaded font",name,path);
-			Fonts[name] = new Font(xml,texture);
+			UIFonts[name] = new UIFont(xml,texture);
+			for(var win in UIWindows) {
+				win = UIWindows[win];
+				win.layout();
+			}
 			if(callback)
-				callback(Fonts[name]);
+				callback(UIFonts[name]);
 		}
 	};
 	load_file("image",path+".png",function(arg) {
@@ -88,10 +92,10 @@ function load_font(name,path,callback) {
 
 load_font("default","bitstream_vera_sans");
 
-function Context() {
+function UIContext() {
 	this.width = this.height = 0;
 	this.buffers = [];
-	this.blank = createTexture(1,1,new Uint8Array([255,255,255,255]));
+	this.blank = window.createTexture? createTexture(1,1,new Uint8Array([255,255,255,255])): null;
 	this.corners = [];
 	this.program = createProgram(
 		"uniform mat4 mvp;\n"+
@@ -133,8 +137,8 @@ function Context() {
 				data: [],
 			});
 	};
-	this.drawText = function(font,colour,x,y,text) { return font.drawText(this,colour,x,y,text); };
-	this.measureText = function(font,text) { return font.measureText(text); };
+	this.drawText = function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): false; };
+	this.measureText = function(font,text) { return font? font.measureText(text): [0,0]; };
 	this.drawRect = function(texture,colour,x1,y1,x2,y2,tx1,ty1,tx2,ty2) {
 		this.set(texture,colour);
 		this.buffers[this.buffers.length-1].data = this.buffers[this.buffers.length-1].data.concat([
@@ -240,96 +244,178 @@ function Context() {
 };
 
 function UIWindow(modal,tree) {
+	if(this == window)
+		return new UIWindow(modal,tree);
 	this.modal = modal;
 	this.tree = tree;
-	this.ctx = new Context();
-	this.is_dirty = true;
-	this.dirty = function() { this.is_dirty = true; }
-	var init = function(node,parent) {
-		node.parent = parent;
-		node.is_dirty = true;
-		node.dirty = function() {
-			if(node.is_dirty) return;
-			node.is_dirty = true;
-			node.parent.dirty();
-		}
-		node.children = node.children || [];
-		for(var child in node.children)
-			init(node.children[child],node);
-	};
+	this.ctx = new UIContext();
+	this.isDirty = true;
+	this.dirty = function() { this.isDirty = true; }
 	this.draw = function(canvas) {
 		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight) {
 			this.ctx.width = canvas.offsetWidth;
 			this.ctx.height = canvas.offsetHeight;
-			this.is_dirty = true;
+			this.isDirty = true;
 			this.mvp = new Float32Array(createOrtho2D(0,this.ctx.width,this.ctx.height,0));
 		}
-		if(this.is_dirty) {
+		if(this.isDirty) {
 			this.ctx.clear();
 			if(this.modal)
 				this.ctx.fillRect([0.3,0.3,0.3,0.6],0,0,this.ctx.width,this.ctx.height);
 			var draw = function(node,ctx) {
-				node.is_dirty = false;
+				node.isDirty = false;
 				node.draw(ctx);
 				for(var child in node.children)
 					node.children[child].draw(ctx);
 			};
 			draw(tree,this.ctx);
-			this.is_dirty = false;
+			this.isDirty = false;
 		}
 		this.ctx.draw(this.mvp);
 	};
 	this.hide = function() {
-		var idx = Windows.indexOf(this);
+		var idx = UIWindows.indexOf(this);
 		if(idx != -1)
-			Windows.splice(idx,1);
+			UIWindows.splice(idx,1);
 	};
 	this.show = function() {
 		this.hide();
+		this.layout();
 		if(this.modal)
-			Windows.push(this);
+			UIWindows.push(this);
 		else
-			Windows.unshift(this);
+			UIWindows.unshift(this);
 	};
+	this.getFont = function() {
+		return UIFonts.indexOf("default") != -1? UIFonts["default"]: null;
+	};
+	this.getBgColour = function() {
+		return UIDefaults.bgColour;
+	};
+	this.getFgColour = function() {
+		return UIDefaults.fgColour;
+	};
+	this.layout = function() {
+		this.tree.layout();
+	};
+	tree.setParent(this);
+	tree.layout();
+	return this;
 };
 
-function draw_UI(canvas) {
-	for(var window in Windows)
-		Windows[window].draw(canvas);
+function drawUI(canvas) {
+	for(var window in UIWindows)
+		UIWindows[window].draw(canvas);
 }
 
-function UICheckbox(label) {
-	this.label = label;
-	this.x1 = 100; this.x2 = this.x1;
-	this.y1 = 100; this.y2 = this.y1;
-	this.radius = 10;
-	this.checked = false;
-	this.draw = function(ctx) {
-		if(this.checked)
-			ctx.fillRoundedRect([0,1,0,1],this.radius,this.x1,this.y1,this.x1,this.y1);
-		else
-			ctx.fillRoundedRect([0.5,0.8,0.5,1],this.radius,3,this.x1,this.y1,this.x1,this.y1);
-	};
-}
+var UIDefaults = {
+	hpadding: 10,
+	bgColour: [0.3,0.2,0.2,1.0],
+	fgColour: [1.0,0.8,0.8,1.0],
+};
 
-function UISlider(choices,auto) {
-	this.choices = choices;
-	this.auto = auto;
-	this.choice = auto? -1: 0;
+function UIComponent() {
+	if(this == window)
+		return new UIComponent();
+	this.x1 = this.x2 = 0;
+	this.y1 = this.y2 = 0;
+	this.pos = function() {
+		return [this.x1,this.y1];
+	}
+	this.setPos = function(pos) {
+		if(pos == this.pos()) return;
+		this.x2 = this.width() + pos[0];
+		this.y2 = this.height() + pos[1];
+		this.x1 = pos[0];
+		this.y1 = pos[1];
+		this.dirty();
+	}
+	this.setSize = function(size) {
+		if(size == this.size()) return;
+		this.x2 = this.x1 + size[0];
+		this.y2 = this.y1 + size[1];
+		this.dirty();
+	}
+	this.width = function() {
+		return this.x2 - this.x1;
+	}
+	this.height = function() {
+		return this.y2 - this.y1;
+	}
+	this.size = function() {
+		return [this.width(),this.height()];
+	}
+	this.preferredSize = function() {
+		return this.size(); 
+	}
 	this.font = null;
-	this.getSize = function() {
-		this.font = this.font || Fonts["default"];
-		var lineHeight = this.font.lineHeight;
-		this.choiceSize = 100;
-		this.margin = lineHeight / 2;
-		return [this.choiceSize + (this.auto? choiceSize*2: 0) + lineHeight,
-			lineHeight*4];
-	};
-	this.setPos = function(x,y) {
-		var sz = this.getSize();
-		this.x1 = x + this.margin;
-		this.y1 = y + this.margin;
-		this.x2 = x + sz[0] - this.margin;
-		this.y2 = y + sz[1] - this.margin;
-	};
+	this.getFont = function() {
+		return this.font || this.parent.getFont();
+	}
+	this.fgColour = null;
+	this.getFgColour = function() {
+		return this.fgColour || this.parent.getFgColour();
+	}
+	this.bgColour = null;
+	this.getBgColour = function() {
+		return this.bgColour || this.parent.getBgColour();
+	}
+	this.layout = function() {
+		for(var child in this.children)
+			this.children[child].layout();
+		this.setSize(this.preferredSize());
+	}
+	this.draw = function(ctx) {}
+	this.isDirty = true;
+	this.dirty = function() {
+		if(this.isDirty) return;
+		this.isDirty = true;
+		this.parent.dirty();
+	}
+	this.children = [];
+	this.parent = null;
+	this.setParent = function(parent) {
+		this.parent = parent;
+		this.isDirty = true;
+		for(var child in this.children)
+			this.children[child].setParent(this);
+	}
+	return this;
 }
+
+function UILabel(text) {
+	var ctrl = UIComponent(); // poor man's inheritence
+	ctrl.text = text;
+	ctrl.preferredSize = function() {
+		var font = ctrl.getFont();
+		return font? font.measureText(ctrl.text): [0,0];
+	}
+	ctrl.draw = function(ctx) {
+		console.log("drawing",text,ctrl);
+		ctx.fillRect(ctrl.getBgColour(),ctrl.x1,ctrl.y1,ctrl.x2,ctrl.y2);
+		ctx.drawText(ctrl.getFont(),ctrl.getFgColour(),ctrl.x1,ctrl.y1,ctrl.text);
+	}
+	return ctrl;
+}
+	
+function UILayoutFlow(ctrl,hpadding) {
+	hpadding = hpadding || UIDefaults.hpadding;
+	return function() {
+		var h = 0;
+		for(var child in ctrl.children) {
+			child = ctrl.children[child];
+			child.layout();
+			child.setSize(child.preferredSize());
+			h = Math.max(h,child.height());
+		}
+		var x = 0;
+		for(var child in ctrl.children) {
+			if(x) x += hpadding;
+			child = ctrl.children[child];
+			child.setPos([ctrl.x+x,ctrl.y1+(h-child.height())/2]);
+			x += child.width();
+		}
+		ctrl.setSize([x,h]);
+	}
+}
+
