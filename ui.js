@@ -44,9 +44,9 @@ function UIFont(xml,texture) {
 	this.drawText = function(ctx,colour,x,y,text) {
 		var prev = 0;
 		for(var ch in text) {
-			ch =text.charCodeAt(ch);
+			ch = text.charCodeAt(ch);
 			if(ch in this.chars) {
-				data = this.chars[ch];
+				var data = this.chars[ch];
 				ctx.drawRect(this.texture,colour,
 					x+data.xofs,
 					y+data.yofs,
@@ -95,7 +95,7 @@ load_font("default","bitstream_vera_sans");
 function UIContext() {
 	this.width = this.height = 0;
 	this.buffers = [];
-	this.blank = window.createTexture? createTexture(1,1,new Uint8Array([255,255,255,255])): null;
+	this.blank = createTexture(1,1,new Uint8Array([255,255,255,255]));
 	this.corners = [];
 	this.program = createProgram(
 		"uniform mat4 mvp;\n"+
@@ -129,7 +129,9 @@ function UIContext() {
 		this.buffers = [];
 	};
 	this.set = function(texture,colour) {
-		if(!this.buffers.length || this.buffers[this.buffers.length-1].texture != texture || this.buffers[this.buffers.length-1].colour != colour)
+		if(!this.buffers.length || 
+			this.buffers[this.buffers.length-1].texture != texture ||
+			this.buffers[this.buffers.length-1].colour != colour)
 			this.buffers.push({
 				texture: texture,
 				colour: colour,
@@ -137,13 +139,13 @@ function UIContext() {
 				data: [],
 			});
 	};
-	this.drawText = function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): false; };
+	this.drawText = function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): 0; };
 	this.measureText = function(font,text) { return font? font.measureText(text): [0,0]; };
 	this.drawRect = function(texture,colour,x1,y1,x2,y2,tx1,ty1,tx2,ty2) {
 		this.set(texture,colour);
 		this.buffers[this.buffers.length-1].data = this.buffers[this.buffers.length-1].data.concat([
-			x1,y1,tx1,ty1, x2,y1,tx2,ty1, x1,y2,tx1,ty2,
-			x2,y1,tx2,ty1, x1,y2,tx1,ty2, x2,y2,tx2,ty2]);
+			x1,y2,tx1,ty2, x2,y1,tx2,ty1, x1,y1,tx1,ty1, //CCW
+			x2,y2,tx2,ty2, x2,y1,tx2,ty1, x1,y2,tx1,ty2]);
 	};
 	this.fillRect = function(colour,x1,y1,x2,y2) {
 		this.drawRect(this.blank,colour,x1,y1,x2,y2,0,0,1,1);
@@ -186,7 +188,7 @@ function UIContext() {
 	};
 	this.drawRoundedRect = function(colour,margin,width,x1,y1,x2,y2) {
 		var corner = this.corners[margin] = this.corners[margin] || this.makeCorners(margin),
-			pts = [], p = 0, scale = 1.0 - width/margin;
+			pts = [], p = 0, scale = 1.0 - width/margin,
 			addPoint = function(pt,x,xdir,y,ydir) {
 				pts[p++] = x + xdir*pt[0]; pts[p++] = y + ydir*pt[1];
 				pts[p++] = 0; pts[p++] = 0;
@@ -216,6 +218,8 @@ function UIContext() {
 	};
 	this.draw = function(mvp) {
 		gl.useProgram(this.program);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
 		gl.uniformMatrix4fv(this.program.mvp,false,mvp);
 		gl.uniform1i(this.program.texture,0);
 		gl.uniform1i(this.program.z,0.6);
@@ -240,6 +244,8 @@ function UIContext() {
 		gl.disableVertexAttribArray(this.program.vertex);
 		gl.disableVertexAttribArray(this.program.texcoord);
 		gl.bindTexture(gl.TEXTURE_2D,null);
+		gl.enable(gl.DEPTH_TEST);
+		gl.enable(gl.CULL_FACE);
 	}
 };
 
@@ -249,10 +255,11 @@ function UIWindow(modal,tree) {
 	this.modal = modal;
 	this.tree = tree;
 	this.ctx = new UIContext();
+	this.mvp = null;
 	this.isDirty = true;
 	this.dirty = function() { this.isDirty = true; }
 	this.draw = function(canvas) {
-		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight) {
+		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight || !this.mvp) {
 			this.ctx.width = canvas.offsetWidth;
 			this.ctx.height = canvas.offsetHeight;
 			this.isDirty = true;
@@ -266,7 +273,7 @@ function UIWindow(modal,tree) {
 				node.isDirty = false;
 				node.draw(ctx);
 				for(var child in node.children)
-					node.children[child].draw(ctx);
+					draw(node.children[child],ctx);
 			};
 			draw(tree,this.ctx);
 			this.isDirty = false;
@@ -287,7 +294,7 @@ function UIWindow(modal,tree) {
 			UIWindows.unshift(this);
 	};
 	this.getFont = function() {
-		return UIFonts.indexOf("default") != -1? UIFonts["default"]: null;
+		return "default" in UIFonts? UIFonts["default"]: null;
 	};
 	this.getBgColour = function() {
 		return UIDefaults.bgColour;
@@ -310,8 +317,9 @@ function drawUI(canvas) {
 
 var UIDefaults = {
 	hpadding: 10,
-	bgColour: [0.3,0.2,0.2,1.0],
-	fgColour: [1.0,0.8,0.8,1.0],
+	vpadding: 10,
+	bgColour: [0.3,0.2,0.2,0.5],
+	fgColour: [1.0,0.0,0.5,1.0],
 };
 
 function UIComponent() {
@@ -323,11 +331,14 @@ function UIComponent() {
 		return [this.x1,this.y1];
 	}
 	this.setPos = function(pos) {
-		if(pos == this.pos()) return;
-		this.x2 = this.width() + pos[0];
-		this.y2 = this.height() + pos[1];
-		this.x1 = pos[0];
-		this.y1 = pos[1];
+		var x = pos[0]-this.x1, y = pos[1]-this.y1;
+		if(!x && !y) return;
+		for(var child in this.children) {
+			child = this.children[child];
+			child.setPos([child.x1+x,child.y1+y]);
+		}
+		this.x1 += x; this.y1 += y;
+		this.x2 += x; this.y2 += y;
 		this.dirty();
 	}
 	this.setSize = function(size) {
@@ -391,15 +402,28 @@ function UILabel(text) {
 		return font? font.measureText(ctrl.text): [0,0];
 	}
 	ctrl.draw = function(ctx) {
-		console.log("drawing",text,ctrl);
-		ctx.fillRect(ctrl.getBgColour(),ctrl.x1,ctrl.y1,ctrl.x2,ctrl.y2);
 		ctx.drawText(ctrl.getFont(),ctrl.getFgColour(),ctrl.x1,ctrl.y1,ctrl.text);
 	}
 	return ctrl;
 }
+
+function UIPanel(children,bg,layout) {
+	var ctrl = UIComponent();
+	ctrl.children = children || ctrl.children;
+	ctrl.layout = (layout || UILayoutFlow)(ctrl);
+	ctrl.bg = bg;
+	ctrl.draw = function(ctx) {
+		if(!ctrl.bg) return;
+		var margin = Math.min(UIDefaults.hpadding,UIDefaults.vpadding);
+		ctx.fillRoundedRect(ctrl.getBgColour(),margin,
+			ctrl.x1+margin,ctrl.y1+margin,ctrl.x2-margin,ctrl.y2-margin);
+	};
+	return ctrl;
+}
 	
-function UILayoutFlow(ctrl,hpadding) {
-	hpadding = hpadding || UIDefaults.hpadding;
+function UILayoutFlow(ctrl,hpadding,vpadding) {
+	hpadding = isUndefined(hpadding)? UIDefaults.hpadding: hpadding;
+	vpadding = isUndefined(vpadding)? UIDefaults.vpadding: vpadding;
 	return function() {
 		var h = 0;
 		for(var child in ctrl.children) {
@@ -408,14 +432,30 @@ function UILayoutFlow(ctrl,hpadding) {
 			child.setSize(child.preferredSize());
 			h = Math.max(h,child.height());
 		}
-		var x = 0;
+		h += vpadding*2;
+		var x = hpadding;
 		for(var child in ctrl.children) {
-			if(x) x += hpadding;
 			child = ctrl.children[child];
-			child.setPos([ctrl.x+x,ctrl.y1+(h-child.height())/2]);
-			x += child.width();
+			child.setPos([ctrl.x1+x,ctrl.y1+(h-child.height())/2]);
+			x += child.width() + hpadding;
 		}
 		ctrl.setSize([x,h]);
 	}
 }
 
+function UILayoutRows(ctrl,hpadding,vpadding) {
+	hpadding = isUndefined(hpadding)? UIDefaults.hpadding: hpadding;
+	vpadding = isUndefined(vpadding)? UIDefaults.vpadding: vpadding;
+	return function() {
+		var w = 0, h = vpadding;
+		for(var child in ctrl.children) {
+			child = ctrl.children[child];
+			child.layout();
+			child.setSize(child.preferredSize());
+			child.setPos([ctrl.x1+hpadding,ctrl.y1+h]);
+			w = Math.max(w,child.width());
+			h += child.height() + vpadding;
+		}
+		ctrl.setSize([w,h]);
+	}
+}

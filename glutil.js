@@ -27,6 +27,28 @@ function createProgram(vstr,fstr) {
 	return program;
 }
 
+function createTexture(width,height,data) {
+	var tex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D,tex);
+	gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,width,height,0,gl.RGBA,gl.UNSIGNED_BYTE,data || null);
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+	gl.bindTexture(gl.TEXTURE_2D,null);
+	tex.width = width;
+	tex.height = height;
+	return tex;
+}
+
+function createOrtho2D(left,right,bottom,top) {
+	var near = -1, far = 1, rl = right-left, tb = top-bottom, fn = far-near;
+	return [2/rl,0,0,0,
+		0,2/tb,0,0,
+		0,0,-2/fn,0,
+		-((right+left)/rl), -((top+bottom)/tb), -((far+near)/fn),1];
+}
+
 function createPerspective(fovy,aspect,near,far) {
         var top = near*Math.tan(fovy*Math.PI/360.0);
         var right = top*aspect, left = -right, bottom = -top;

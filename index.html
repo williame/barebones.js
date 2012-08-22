@@ -29,7 +29,7 @@ function start() {
 	};
 	window.onresize();
 	gl.activeTexture(gl.TEXTURE0);
-	gl.clearColor(0,0,0,1);
+	gl.clearColor(1,1,1,1);
 	gl.enable(gl.DEPTH_TEST);
 	//gl.depthFunc(gl.???);
 	gl.enable(gl.BLEND);
@@ -46,8 +46,10 @@ function start() {
 	
 	load_file("javascript","glutil.js",function() {
 		load_file("javascript","ui.js",function() {
-			var ctrl = UILabel("this is a test"),
-				win = UIWindow(true,ctrl);
+			var win = UIWindow(false,UIPanel([
+					UIPanel([UILabel("this is a test"),UILabel("this too")],true),
+					UIPanel([UILabel("this is a test"),UILabel("this too")]),
+			],false,UILayoutRows));
 			win.show();
 		});
 		load_file("javascript","g3d.js",function() {
@@ -56,6 +58,8 @@ function start() {
 		});
 	});
 }
+
+function isUndefined(o) { return typeof(o) == 'undefined'; }
 
 function now() { return (new Date()).getTime(); }
 
@@ -66,7 +70,7 @@ function loop() {
 		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
 		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
 		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
-	g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+	//g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
 	if(window.drawUI) drawUI(canvas);
 }
 
