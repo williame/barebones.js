@@ -3,14 +3,34 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style type="text/css">
 body { border:0px;margin:0px;padding:0px; }
-#game-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px;cursor:none; }
+#game-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
 </style>
 <script type="text/javascript">
 
 var UI_inited = false;
 var gl, canvas, g3d_test;
 
-function start() {
+function game() { // you replace this!
+	g3d_test = new G3D("data/test.g3d");
+	var win = UIWindow(true,UIPanel([
+		UIPanel([UILabel("this is a test"),
+			UILabel("this too"),
+			UIButton("click me!",function(evt) { win.hide(); }),],true),
+			UIPanel([UILabel("this is a test"),UILabel("this too")]),
+	],false,UILayoutRows));
+	win.show();
+}
+
+function render() { // you replace this!
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+	var zoom = 2,
+		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
+		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
+		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
+	g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+}
+
+function init() {
 	canvas = document.getElementById("game-canvas");
 	try {
 		gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
@@ -28,36 +48,41 @@ function start() {
 		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
 	};
 	window.onresize();
-	gl.activeTexture(gl.TEXTURE0);
-	gl.clearColor(1,1,1,1);
-	gl.enable(gl.DEPTH_TEST);
-	//gl.depthFunc(gl.???);
-	gl.enable(gl.BLEND);
-	gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
-	gl.enable(gl.CULL_FACE);
-	gl.frontFace(gl.CCW);
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-	
-	anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
-		gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || 
-		gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic");
-	if(anisotropic)
-		max_anisotropy = gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
-	
-	load_file("javascript","glutil.js",function() {
-		load_file("javascript","ui.js",function() {
-			var win = UIWindow(false,UIPanel([
-					UIPanel([UILabel("this is a test"),UILabel("this too")],true),
-					UIPanel([UILabel("this is a test"),UILabel("this too")]),
-			],false,UILayoutRows));
-			win.show();
-		});
-		load_file("javascript","g3d.js",function() {
-			g3d_test = new G3D("data/test.g3d");
-			window.requestAnimFrame(loop);
-		});
-	});
+	var keys = [],
+		onMouseDown = function(evt) {
+			evt.cancelBubble = true;
+			if(!onMouseDownUI(evt))
+				window.onMouseDown(evt,keys);
+		},
+		onMouseUp = function(evt) {
+		},
+		onKeyDown = function(evt) {
+		},
+		onKeyUp = function(evt) {
+		};
+	var loaded = function() {
+		if(_loading.length) return;
+		document.addEventListener("mousedown",onMouseDown,true);
+		document.addEventListener("mouseup",onMouseUp,true);
+		document.addEventListener("keydown",onKeyDown,true);
+		document.addEventListener("keyup",onKeyUp,true);
+		window.requestAnimFrame(loop);
+		game();
+	};
+	loadFile("javascript","glutil.js",loaded);
+	loadFile("javascript","ui.js",loaded);
+	loadFile("javascript","g3d.js",loaded);
 }
+
+function onMouseDown(evt,keys) { // you implement this!
+	console.log("got",evt,keys);
+} 
+
+function onMouseUp(evt,keys) {} // you implement this!
+
+function onKeyDown(evt,keys) {} // you implement this!
+
+function onKeyUp(evt,keys) {} // you implement this!
 
 function isUndefined(o) { return typeof(o) == 'undefined'; }
 
@@ -65,31 +90,13 @@ function now() { return (new Date()).getTime(); }
 
 function loop() {
 	window.requestAnimFrame(loop);
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-	var zoom = 2,
-		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
-		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
-		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
-	//g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
-	if(window.drawUI) drawUI(canvas);
-}
-
-var anisotropic = null, anisotropy = 0, max_anisotropy = 0, _textures = [];
-
-function set_anisotropy(anisotropy) {
-	if(!max_anisotropy) return;
-	for(var tex in _textures) {
-		tex = _textures[tex];
-		gl.bindTexture(gl.TEXTURE_2D,tex);
-		gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
-	}
-	window.anisotropy = anisotropy;
-	gl.bindTexture(gl.TEXTURE_2D,null);
+	render();
+	drawUI(canvas);
 }
 
 var _loading = [], _loading_wait = null;
 
-function load_file(type,path,callback) {
+function loadFile(type,path,callback) {
 	if(_loading_wait) clearTimeout(_loading_wait);
 	_loading_wait = setTimeout(function() {
 		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
@@ -118,20 +125,10 @@ function load_file(type,path,callback) {
 		document.getElementsByTagName("head")[0].appendChild(script);
 	} else if(type == "image") {
 		var image = new Image();
-		image.onload = function() { 
-			var texture = gl.createTexture();
-			gl.bindTexture(gl.TEXTURE_2D,texture);
-			gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image);
-			if(anisotropy)
-				gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
-			gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_NEAREST);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.bindTexture(gl.TEXTURE_2D,null);
-			_textures.push(texture);
-			done(texture);
+		image.onload = function() {
+			done(createTexture(null,null,image));
 		};
-		image.src =path;
+		image.src = path;
 	} else if(type == "xml") {
 		var doc = new XMLHttpRequest();
 		doc.open("GET",path,true);
@@ -164,7 +161,7 @@ window.requestAnimFrame =
 		window.setTimeout(callback, 1/60);
 	};
 </script>
-<body onload="start()">
+<body onload="init()">
 <noscript>
 Sorry, you don't have Javascript enabled :(
 </noscript>

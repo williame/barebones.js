@@ -91,7 +91,7 @@ function G3D(filename) {
 		for(var texture in g3d.texture_filenames)
 			var _ = function(filename,meshes) {
 				filename = g3d.filename.substring(0,g3d.filename.lastIndexOf("/")+1) + filename;
-				load_file("image",filename,function(tex) {
+				loadFile("image",filename,function(tex) {
 					for(var mesh in meshes)
 						meshes[mesh].texture = tex;
 					g3d.texture_filenames = g3d.texture_filenames.slice(
@@ -158,7 +158,7 @@ function G3D(filename) {
 			g3d.meshes[i].draw(g3d.program,t);
 		gl.useProgram(null);
 	};
-	load_file("ArrayBuffer",this.filename,this._file_loaded);
+	loadFile("ArrayBuffer",this.filename,this._file_loaded);
 };
 
 function G3DMesh(reader) {

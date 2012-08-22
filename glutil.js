@@ -1,3 +1,32 @@
+gl.activeTexture(gl.TEXTURE0);
+gl.clearColor(1,1,1,1);
+gl.enable(gl.DEPTH_TEST);
+//gl.depthFunc(gl.???);
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+gl.enable(gl.CULL_FACE);
+gl.frontFace(gl.CCW);
+gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+var anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
+		gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || 
+		gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic"),
+	max_anisotropy = anisotropic? gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT): 0,
+	anisotropy = max_anisotropy,
+	_textures = [];	
+
+function set_anisotropy(anisotropy) {
+	if(!max_anisotropy) return;
+	for(var tex in _textures) {
+		tex = _textures[tex];
+		gl.bindTexture(gl.TEXTURE_2D,tex);
+		gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
+	}
+	window.anisotropy = anisotropy;
+	gl.bindTexture(gl.TEXTURE_2D,null);
+}
+
+
 function createShader(str,type) {
 	if(!window.x_shaders) window.x_shaders = [];
 	var shader = window.x_shaders[[str,type]];
@@ -30,14 +59,21 @@ function createProgram(vstr,fstr) {
 function createTexture(width,height,data) {
 	var tex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D,tex);
-	gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,width,height,0,gl.RGBA,gl.UNSIGNED_BYTE,data || null);
+	if(width != null)
+		gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,width,height,0,gl.RGBA,gl.UNSIGNED_BYTE,data || null);
+	else
+		gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,data);
+	if(anisotropy)
+		gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
 	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
 	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+	gl.generateMipmap(gl.TEXTURE_2D);
 	gl.bindTexture(gl.TEXTURE_2D,null);
 	tex.width = width;
 	tex.height = height;
+	_textures.push(tex);
 	return tex;
 }
 
