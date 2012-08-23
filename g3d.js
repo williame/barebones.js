@@ -7,6 +7,7 @@ function G3D(filename) {
 	this.program = null;
 	this.ready = false;
 	this._file_loaded = function(arrayBuffer) {
+		if(window == this) console.log("G3D._file_loaded this is window!");
 		var pow2 = new Float32Array(24), // massive speedup if precomputed
 			one_over_pow2 = new Float32Array(24),
 			reader = {
@@ -131,8 +132,11 @@ function G3D(filename) {
 				"uniform vec4 teamColour;\n"+
 				"void main() {\n"+
 				"	vec4 tex = texture2D(texture,texel);\n"+
-				"	if(0.0 == tex.a) tex = teamColour;\n"+
-				"	if(0.0 == tex.a) discard;\n"+
+				"	if(1.0 != tex.a && 0.0 != teamColour.a) {\n"+
+				"		tex.rgb *= tex.a;\n"+
+				"		tex.rgb += teamColour.rgb * teamColour.a * (1.0-tex.a);\n"+
+				"		tex.a = 1.0;\n"+
+				"	}\n"+
 				"	gl_FragColor = vec4(tex.rgb*lighting,tex.a);\n"+
 				"}");
 			g3d.program.vertex0 = gl.getAttribLocation(g3d.program,"vertex0");
@@ -153,8 +157,9 @@ function G3D(filename) {
 		gl.uniformMatrix4fv(g3d.program.nMatrix,false,nMatrix);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.uniform1i(g3d.program.texture,0);
+		gl.frontFace(gl.CCW);
 		t = Math.max(0,Math.min(t,1))
-		for(var i in g3d.meshes)
+		for(var i=0; i<g3d.meshes.length; i++)
 			g3d.meshes[i].draw(g3d.program,t);
 		gl.useProgram(null);
 	};
@@ -231,6 +236,6 @@ function G3DMesh(reader) {
 		gl.disableVertexAttribArray(program.vertex0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
-		gl.bindTexture(gl.TEXTURE_2D,null);
+		//gl.bindTexture(gl.TEXTURE_2D,null);
 	};
 }

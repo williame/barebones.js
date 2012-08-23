@@ -1,7 +1,7 @@
 gl.activeTexture(gl.TEXTURE0);
 gl.clearColor(1,1,1,1);
 gl.enable(gl.DEPTH_TEST);
-//gl.depthFunc(gl.???);
+gl.depthFunc(gl.LEQUAL);
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 gl.enable(gl.CULL_FACE);
