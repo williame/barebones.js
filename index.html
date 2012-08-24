@@ -97,6 +97,7 @@ function loop() {
 var _loading = [], _loading_wait = null;
 
 function loadFile(type,path,callback) {
+	console.log("loading",type,path,"...");
 	if(_loading_wait) clearTimeout(_loading_wait);
 	_loading_wait = setTimeout(function() {
 		alert("it's taking a long time to load all the files!  Maybe something is wrong?");

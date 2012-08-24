@@ -1,5 +1,7 @@
 
 function G3D(filename) {
+	if(this == window)
+		throw "WTF!?";
 	var g3d = this;
 	this.filename = filename;
 	this.meshes = [];
@@ -7,7 +9,6 @@ function G3D(filename) {
 	this.program = null;
 	this.ready = false;
 	this._file_loaded = function(arrayBuffer) {
-		if(window == this) console.log("G3D._file_loaded this is window!");
 		var pow2 = new Float32Array(24), // massive speedup if precomputed
 			one_over_pow2 = new Float32Array(24),
 			reader = {
@@ -182,7 +183,7 @@ function G3DMesh(reader) {
 		if((1<<t)&this.textures) {
 			var texture_filename = reader.str64();
 			if(t==0)
-				this.texture_filename = texture_filename=="war_kite.tga"?"test.png":texture_filename;
+				this.texture_filename = texture_filename;
 		}
 	}
 	this.vn_vbo = gl.createBuffer();
