@@ -127,6 +127,8 @@ class G3D:
                 (mesh.name,mesh.frame_count,mesh.vertex_count,mesh.index_count)
         
 if __name__=="__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: python g3dopt.py [src] [dest]")
     src = sys.argv[1]
     g3d = G3D(src,file(src,"r").read())
     g3d.desc()
