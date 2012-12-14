@@ -2,23 +2,22 @@
 <head><title>barebones.js</title>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style type="text/css">
-body { border:0px;margin:0px;padding:0px; }
-#game-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
+html, body { border:0px;margin:0px;padding:0px; color:white; background-color:black;}
+#game-canvas { width:100%; border:0px;margin:0px;padding:0px; }
 </style>
 <script type="text/javascript">
 
-var UI_inited = false;
-var gl, canvas, g3d_test;
+var gl, canvas, splash, audio, messages, keys = {}, perf;
 
 function game() { // you replace this!
-	g3d_test = new G3D("data/test.g3d");
-/*	var win = UIWindow(true,UIPanel([
+	game.g3d_test = new G3D("data/test.g3d");
+	var win = UIWindow(true,UIPanel([
 		UIPanel([UILabel("this is a test"),
 			UILabel("this too"),
-			UIButton("click me!",function(evt) { win.hide(); }),],true),
+			UIButton("click me!",function(evt) { win.hide(); }),]),
 			UIPanel([UILabel("this is a test"),UILabel("this too")]),
-	],false,UILayoutRows));
-	win.show();*/
+	],UILayoutRows));
+	win.show();
 }
 
 function render() { // you replace this!
@@ -27,7 +26,7 @@ function render() { // you replace this!
 		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
 		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
 		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
-	g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+	game.g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
 }
 
 function init() {
@@ -42,77 +41,219 @@ function init() {
 		alert("Unable to initialize WebGL. Your browser may not support it.");
 		return;
 	}
+	window.onerror = function(msg,url,lineno) {
+		console.log("ERROR:",msg,url,lineno);
+		if(fail.error) return;
+		fail.error = true;
+		alert("ERROR "+url+"#"+lineno+"\n"+msg);
+	};
   	window.onresize = function() {
+  		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
 		canvas.width = canvas.offsetWidth;
 		canvas.height = canvas.offsetHeight;
 		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
 	};
 	window.onresize();
-	var keys = [],
+	var audioFactory = window.webkitAudioContext || window.mozAudioContext;
+	if(audioFactory)
+		audio = new audioFactory();
+	var 	isMouseDown = false,
 		onMouseDown = function(evt) {
 			evt.cancelBubble = true;
-			if(!onMouseDownUI(evt))
+			isMouseDown = true;
+			if(evt.target !== canvas)
+				return false;
+			if(!onMouseDownUI(evt,keys) && window.onMouseDown)
 				window.onMouseDown(evt,keys);
+			schedule.run();
+			return false;
+		},
+		onMouseMove = function(evt) {
+			evt.cancelBubble = true;
+			if(evt.target !== canvas)
+				return;
+			if(isMouseDown && window.onMouseMove)
+				window.onMouseMove(evt,keys);
+			schedule.run();
 		},
 		onMouseUp = function(evt) {
+			evt.cancelBubble = true;
+			isMouseDown = false;
+			if(evt.target !== canvas)
+				return false;
+			if(!onMouseUpUI(evt,keys) && window.onMouseUp)
+				window.onMouseUp(evt,keys);
+			schedule.run();
+			return false;
+		},
+		onContextMenu = function(evt) {
+			evt.cancelBubble = true;
+			evt.preventDefault();
+			if(!baseMouseEvent(evt))
+				return;
+			if(!onContextMenuUI(evt,keys) && window.onContextMenu)
+				window.onContextMenu(evt,keys);
+			schedule.run();
+			return false;
 		},
 		onKeyDown = function(evt) {
+			evt.cancelBubble = true;
+			if(!keys[evt.which]) {
+				keys[evt.which] = true;
+				if(window.onKeyDown)
+					window.onKeyDown(evt,keys);
+			}
+			schedule.run();
+			return false;
 		},
 		onKeyUp = function(evt) {
+			evt.cancelBubble = true;
+			if(keys[evt.which]) {
+				keys[evt.which] = false;
+				if(window.onKeyUp)
+					window.onKeyUp(evt,keys);
+			}
+			schedule.run();
+			return false;
 		};
-	var loaded = function() {
-		if(_loading.length) return;
-		document.addEventListener("mousedown",onMouseDown,true);
-		document.addEventListener("mouseup",onMouseUp,true);
-		document.addEventListener("keydown",onKeyDown,true);
-		document.addEventListener("keyup",onKeyUp,true);
-		window.requestAnimFrame(loop);
-		game();
-	};
-	loadFile("javascript","glutil.js",loaded);
-	loadFile("javascript","ui.js",loaded);
-	loadFile("javascript","g3d.js",loaded);
+	var loaded = Waiter(function() {
+			document.addEventListener("mousedown",onMouseDown,true);
+			document.addEventListener("mouseup",onMouseUp,true);
+			document.addEventListener("mousemove",onMouseMove,true);
+			document.addEventListener("contextmenu",onContextMenu,true);
+			document.addEventListener("keydown",onKeyDown,true);
+			document.addEventListener("keyup",onKeyUp,true);
+			window.focus();
+			window.requestAnimFrame(loop);
+			perf = new Perf();
+			perf.window().show();
+			game();
+		});
+	loadFile("javascript","glutil.js",loaded());
+	loadFile("javascript","ui.js",loaded());
+	loadFile("javascript","g3d.js",loaded());
 }
 
-function onMouseDown(evt,keys) { // you implement this!
-	console.log("got",evt,keys);
-} 
+function addMessage(secs,from,text,tag) {
+	var 	f = from? UILabel(from): null,
+		message = UIPanel(f?[f,UILabel(text)]:[UILabel(text)]);
+	message.bgColour = [0.2,0.2,0.2,1];
+	message.tag = tag;
+	if(f) f.fgColour = [0.8,1,0.8,1];
+	if(!messages) {
+		messages = UIWindow(false,UIPanel([],false,UILayoutRows));
+		messages.show();
+	}
+	var old = tag? getMessage(tag): null;
+	if(old) {
+		old.parent.replaceChild(old,message);
+		if(old.dismisser) clearTimeout(old.dismisser);
+	} else
+		messages.ctrl.addChild(message);
+	if(secs) message.dismisser = setTimeout(function() { message.destroy(); },secs*1000);
+}
 
-function onMouseUp(evt,keys) {} // you implement this!
+function getMessage(tag) {
+	if(messages)
+		for(var message in messages.ctrl.children) {
+			message = messages.ctrl.children[message];
+			if(message.tag == tag)
+				return message;
+		}
+	return null;
+}
 
-function onKeyDown(evt,keys) {} // you implement this!
+function removeMessage(tag) {
+	var message = getMessage(tag);
+	if(message) message.destroy();
+	return message != null;
+}
 
-function onKeyUp(evt,keys) {} // you implement this!
+function isUndefined(o) { return typeof(o) === "undefined"; }
+function isDefined(o) { return typeof(o) !== "undefined"; }
 
-function isUndefined(o) { return typeof(o) == 'undefined'; }
+function assert(condition,msg) {
+	if(!condition) fail("ASSERTION FAILED\n"+(msg||"an error occurred"));
+}
+
+function fail(msg) {
+	fail.error = new Error(msg);
+	throw fail.error;
+}
+
+function extend(a,b) {
+	for(var attr in b) {
+		a[attr] = b[attr];
+	}
+	return a;
+};
 
 function now() { return (new Date()).getTime(); }
 
 function loop() {
-	window.requestAnimFrame(loop);
-	render();
-	drawUI(canvas);
+	if(fail.error) return;
+	try {
+		window.requestAnimFrame(loop);
+		schedule.run();
+		if(canvas.width && canvas.height) {
+			if(window.render) {
+				(window.perf)
+					perf.tick();
+				render();
+			}
+			drawUI(canvas);
+		}
+	} catch(e) {
+		fail.error = e;
+		console.log("ERROR:",e);
+		console.log(e.stack||"<no stack>");
+		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+	}
 }
 
-var _loading = [], _loading_wait = null;
+function Waiter(readyCallback) {
+	var waiter = function(msg) {
+		waiter.outstanding.push(msg);
+		return function() {
+			waiter.outstanding.splice(waiter.outstanding.indexOf(msg),1);
+			if(waiter.outstanding.length==0)
+				readyCallback();
+		};
+	};
+	waiter.outstanding = [];
+	return waiter;
+}         
 
 function loadFile(type,path,callback) {
+	loadFile.loading = loadFile.loading || [];
+	loadFile.loadingWait = loadFile.loadingWait || null;
+	loadFile.loaded = loadFile.loaded || [];
 	console.log("loading",type,path,"...");
-	if(_loading_wait) clearTimeout(_loading_wait);
-	_loading_wait = setTimeout(function() {
+	if(path in loadFile.loaded) {
+		setTimeout(function() { callback(loadFile.loaded[path]); },0);
+		return;
+	}
+	if(path in loadFile.loading) {
+		loadFile.loading[path].push(callback);
+		return;
+	}
+	loadFile.loading[path] = [callback];
+	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
+	loadFile.loadingWait = setTimeout(function() {
 		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
-		console.log("awaiting load of:",_loading);
+		console.log("awaiting load of:",loadFile.loading);
 		},3000);
 	var done = function(arg) {
-		console.log("loaded",type,path,_loading);
-		_loading.splice(_loading.indexOf(path),1);
-		if(!_loading.length) clearTimeout(_loading_wait);
-		if(callback)
-			callback(arg);
-		callback = null;
+		console.log("loaded",type,path);
+		loadFile.loaded[path] = arg;
+		var callbacks = loadFile.loading[path];
+		delete loadFile.loading[path];
+		if(!loadFile.loading.length) clearTimeout(loadFile.loadingWait);
+		for(callback in callbacks)
+			if(callbacks[callback])
+				callbacks[callback](arg);
 	};
 	if(type == "javascript") {
-		_loading.push(path);
 		var script = document.createElement('script');
 		script.setAttribute("type","text/javascript");
 		script.setAttribute("src",path);
@@ -148,9 +289,52 @@ function loadFile(type,path,callback) {
 				done(doc.response);
 		};
 		doc.send();
+	} else if(type == "audio") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.responseType = "arraybuffer";
+		doc.overrideMimeType('text/plain; charset=x-user-defined');
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				audio.decodeAudioData(doc.response,done);
+		};
+		doc.send();
 	} else
 		console.log("unsupported type",type,path);
 }
+
+function randomSound(list) {
+	if(list.length && audio)
+		playSound(list[Math.floor(Math.random()*list.length)]);
+}
+
+function playSound(clip,volume) {
+	var source = audio.createBufferSource();
+	source.buffer = clip;
+	if(volume) {
+		var gainNode = audio.createGainNode();
+		source.connect(gainNode);
+		gainNode.connect(audio.destination);
+		gainNode.gain.value = volume;
+	} else
+		source.connect(audio.destination);
+	source.noteOn(0);
+}
+
+function schedule(func) {
+	schedule._items.push(func);
+}
+
+schedule._items = [];
+
+schedule.run = function() {
+	for(var items = schedule._items; items.length; items = schedule._items) {
+		schedule._items = [];
+		for(var i in items)
+			items[i]();
+	}
+};
+
 
 window.requestAnimFrame = 
 	window.requestAnimationFrame ||
@@ -161,11 +345,20 @@ window.requestAnimFrame =
 	function(callback) {
 		window.setTimeout(callback, 1/60);
 	};
+
 </script>
 <body onload="init()">
 <noscript>
 Sorry, you don't have Javascript enabled :(
 </noscript>
+<div id="upload">
+	<form action="/upload" enctype="multipart/form-data" method="post">
+		&nbsp;file&nbsp;<input type="file" name="file" size="40"/>
+		&nbsp;path&nbsp;<input type="text" name="folder" size="10" value="/"/>
+		&nbsp;message&nbsp;<input type="text" name="message" size="10" value="(edited online)"/>
+		<input type="submit" value="upload!"/>
+	</form>
+</div>
 <canvas id="game-canvas">
 Sorry, you don't have webGL enabled :(
 </canvas>
