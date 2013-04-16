@@ -1,18 +1,47 @@
-var UIWindows = [], UIFonts = [];
+/* https://github.com/williame/barebones.js project
+This file provides a very basic 'window and control-based' UI toolkit that
+draws in webGL.  It contains code for printing text messages using bitmap fonts.
+
+BSD LICENSE:
+
+Copyright (c) 2013, William Edwards
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the <organization> nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 function UIFont(xml,texture) {
-	var	font = {},
-		get = function (node,attr) { return parseInt(node.getAttribute(attr)); },
+	assert(this !== window);
+	var	get = function (node,attr) { return parseInt(node.getAttribute(attr)); },
 		common = xml.getElementsByTagName("common")[0];
-	font.lineHeight = get(common,"lineHeight");
-	font.base = get(common,"base");
-	font.scaleW = get(common,"scaleW");
-	font.scaleH = get(common,"scaleH");
-	font.chars = [];
+	this.lineHeight = get(common,"lineHeight");
+	this.base = get(common,"base");
+	this.scaleW = get(common,"scaleW");
+	this.scaleH = get(common,"scaleH");
+	this.chars = [];
 	var chars = xml.getElementsByTagName("char");
 	for(var i=0; i<chars.length; i++) {
 		var ch = chars[i];
-		font.chars[get(ch,"id")] = {
+		this.chars[get(ch,"id")] = {
 			x: get(ch,"x"),
 			y: get(ch,"y"),
 			w: get(ch,"width"),
@@ -22,87 +51,70 @@ function UIFont(xml,texture) {
 			xadv: get(ch,"xadvance"),
 		};
 	}
-	font.kernings = [];
+	this.kernings = [];
 	var kernings = xml.getElementsByTagName("kerning");
 	for(var i=0; i<kernings.length; i++) {
 		var kerning = kernings[i], first = get(kerning,"first");
-		font.kernings[first] = font.kernings[first] || [];
-		font.kernings[first][get(kerning,"second")] = get(kerning,"amount");
+		this.kernings[first] = this.kernings[first] || [];
+		this.kernings[first][get(kerning,"second")] = get(kerning,"amount");
 	}
-	font.texture = texture;
-	font.measureText = function(text) {
-		var prev = 0, x = 0, y = 0;
-		for(var ch in text) {
-			ch =text.charCodeAt(ch);
-			if(ch in font.chars)
-				x += font.chars[ch].xadv;
-			if(prev in font.kernings)
-				x += font.kernings[prev][ch] || 0;
-			prev = ch;
-		}
-		return [x,font.lineHeight];
-	};
-	font.drawText = function(ctx,colour,x,y,text) {
-		var prev = 0;
+	this.texture = texture;
+}
+UIFont.prototype = {
+	measureText: function(text) {
+		var prev = 13, x = 0, w = 0, y = this.lineHeight;
 		for(var ch in text) {
 			ch = text.charCodeAt(ch);
-			if(ch in font.chars) {
-				var data = font.chars[ch];
-				ctx.drawRect(font.texture,colour,
+			if(ch == 10) {
+				w = x;
+				x = 0;
+				y += this.lineHeight;
+			} else if(ch in this.chars)
+				x += this.chars[ch].xadv;
+			if(prev in this.kernings)
+				x += this.kernings[prev][ch] || 0;
+			prev = ch;
+		}
+		return [Math.max(x,w),y];
+	},
+	drawText: function(ctx,colour,x,y,text) {
+		var prev = 0, left = x;
+		for(var ch in text) {
+			ch = text.charCodeAt(ch);
+			if(ch == 10) {
+				x = left;
+				y += this.lineHeight;
+			} else if(ch in this.chars) {
+				var data = this.chars[ch];
+				ctx.drawRect(this.texture,colour,
 					x+data.xofs,
 					y+data.yofs,
 					x+data.xofs+data.w,
 					y+data.yofs+data.h,
-					data.x/font.scaleW,
-					data.y/font.scaleH,
-					(data.x+data.w)/font.scaleW,
-					(data.y+data.h)/font.scaleH);
+					data.x/this.scaleW,
+					data.y/this.scaleH,
+					(data.x+data.w)/this.scaleW,
+					(data.y+data.h)/this.scaleH);
 				x += data.xadv;
 			}
-			if(prev in font.kernings)
-				x += font.kernings[prev][ch] || 0;
+			if(prev in this.kernings)
+				x += this.kernings[prev][ch] || 0;
 			prev = ch;
 		}
-		return x;
-	};
-	return font;
-}
-
-function load_font(name,path,callback) {
-	var xml = null, texture = null;
-	var done = function() {
-		if(xml && texture) {
-			console.log("loaded font",name,path);
-			UIFonts[name] = UIFont(xml,texture);
-			for(var win in UIWindows) {
-				win = UIWindows[win];
-				win.layout();
-			}
-			if(callback)
-				callback(UIFonts[name]);
-		}
-	};
-	loadFile("image",path+".png",function(arg) {
-		texture = arg;
-		done();
-	});
-	loadFile("xml",path+".xml",function(arg) {
-		xml = arg;
-		done();
-	});
-}
-
-load_font("default","bitstream_vera_sans");
+		return [x,y];
+	},
+};
 
 function UIContext() {
-	var ctx = {};
-	ctx.width = ctx.height = 0;
-	ctx.buffers = [];
-	ctx.data = [];
-	ctx.vbo = null;
-	ctx.blank = programs.blankTex;
-	ctx.corners = [];
-	if(!UIContext.program) {
+	assert(this!==window);
+	this.width = this.height = 0;
+	this.buffers = [];
+	this.data = [];
+	this.vbo = null;
+	this.corners = [];
+	this._transforms = [];
+	this.drawCount = 0;
+	if(!UIContext.program)
 		UIContext.program = createProgram(
 			"uniform mat4 mvp;\n"+
 			"uniform float z;\n"+
@@ -120,53 +132,127 @@ function UIContext() {
 			"void main() {\n"+
 			"	vec4 c = texture2D(texture,tx);\n"+
 			"	gl_FragColor = colour * c;\n"+
-			"}");
-		UIContext.program.mvp = gl.getUniformLocation(UIContext.program,"mvp");
-		UIContext.program.colour = gl.getUniformLocation(UIContext.program,"colour");
-		UIContext.program.z = gl.getUniformLocation(UIContext.program,"z");
-		UIContext.program.texture = gl.getUniformLocation(UIContext.program,"texture");
-		UIContext.program.vertex = gl.getAttribLocation(UIContext.program,"vertex");
-		UIContext.program.texcoord = gl.getAttribLocation(UIContext.program,"texcoord");
-	}
-	ctx.clear = function() {
-		ctx.data = [];
-		ctx.buffers = [];
-	};
-	ctx.finish = function() {
-		if(!ctx.vbo) ctx.vbo = gl.createBuffer();
-		if(ctx.data.length) {
-			gl.bindBuffer(gl.ARRAY_BUFFER,ctx.vbo);
-			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(ctx.data),gl.STATIC_DRAW);
+			"}",["mvp","colour","z","texture"],["vertex","texcoord"]);
+};
+UIContext.corners = {};
+UIContext.prototype = {
+	clear: function() {
+		this.data = [];
+		this.buffers = [];
+	},
+	isEmpty: function() {
+		return this.buffers.length == 0;
+	},
+	finish: function() {
+		if(!this.vbo) this.vbo = gl.createBuffer();
+		if(this.data.length) {
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(this.data),gl.STATIC_DRAW);
 			gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		}
-		ctx.data = ctx.data.length; // better to make it crash
-	};
-	ctx.set = function(texture,colour) {
-		if(!ctx.buffers.length || 
-			ctx.buffers[ctx.buffers.length-1].texture != texture ||
-			ctx.buffers[ctx.buffers.length-1].colour != colour) {
-			if(ctx.buffers.length)
-				ctx.buffers[ctx.buffers.length-1].stop = ctx.data.length;
-			ctx.buffers.push({
-				texture: texture,
-				colour: colour,
-				start: ctx.data.length,
-				stop: -1, // marker to say until end of buffer
-			});
+		this.data = this.data.length; // better to make it crash
+		this.drawCount = 0;
+	},
+	inject: function(callback) {
+		if(this.buffers.length)
+			this.buffers[this.buffers.length-1].stop = this.data.length;
+		var args = Array.prototype.slice.call(arguments,1);
+		this.buffers.push({
+			inject: callback,
+			injectArgs: args,
+			texture: "invalid",
+			start: this.data.length,
+			stop: -1,
+		});
+	},
+	transform: function(callback) { // give it a callback that gets called at each draw to modify the mvp matrix
+		if(this.buffers.length)
+			this.buffers[this.buffers.length-1].stop = this.data.length;
+		this.buffers.push({
+			transform: callback,
+			transformArgs: arguments.length>1? Array.prototype.slice.call(arguments,1): null,
+			texture: "invalid",
+			start: this.data.length,
+			stop: -1,
+		});
+	},
+	pushTransform: function(mvp) {
+		this.transform(this._pushTransform,mvp);
+	},
+	popTransform: function() {
+		this.transform(this._popTransform);
+	},
+	_pushTransform: function(a,b) {
+		this._transforms.push(a);
+		return mat4_multiply(a,b);
+	},
+	_popTransform: function() {
+		return this._transforms.pop();
+	},
+	set: function(texture,colour,mode) {
+		if(this.buffers.length) {
+			var buffer = this.buffers[this.buffers.length-1];
+			if(buffer.texture == texture && buffer.colour == colour && buffer.mode == mode)
+				return;
+			buffer.stop = this.data.length;
 		}
-	};
-	ctx.drawText = function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): 0; };
-	ctx.measureText = function(font,text) { return font? font.measureText(text): [0,0]; };
-	ctx.drawRect = function(texture,colour,x1,y1,x2,y2,tx1,ty1,tx2,ty2) {
-		ctx.set(texture,colour);
-		ctx.data = ctx.data.concat([
+		this.buffers.push({
+			texture: texture,
+			colour: colour,
+			transform: null,
+			mode: mode,
+			start: this.data.length,
+			stop: -1, // marker to say until end of buffer
+		});
+	},
+	drawText: function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): 0; },
+	drawTextOutlined: function(font,fgColour,outlineColour,x,y,text) {
+		this.drawText(font,outlineColour,x,y,text);
+		this.drawText(font,outlineColour,x,y,text);
+		this.drawText(font,outlineColour,x+2,y+2,text);
+		this.drawText(font,outlineColour,x+2,y+2,text);
+		return this.drawText(font,fgColour,x+1,y+1,text)+1;
+	},
+	measureText: function(font,text) { return font? font.measureText(text): [0,0]; },
+	drawRect: function(texture,colour,x1,y1,x2,y2,tx1,ty1,tx2,ty2) {
+		this.set(texture,colour,gl.TRIANGLES);
+		this.data = this.data.concat([
 			x1,y2,tx1,ty2, x2,y1,tx2,ty1, x1,y1,tx1,ty1, //CCW
 			x2,y2,tx2,ty2, x2,y1,tx2,ty1, x1,y2,tx1,ty2]);
-	};
-	ctx.fillRect = function(colour,x1,y1,x2,y2) {
-		ctx.drawRect(ctx.blank,colour,x1,y1,x2,y2,0,0,1,1);
-	};
-	ctx.makeCorners = function(r) {
+	},
+	fillRect: function(colour,x1,y1,x2,y2) {
+		this.drawRect(programs.blankTex,colour,x1,y1,x2,y2,0,0,1,1);
+	},
+	drawLine: function(colour,x1,y1,x2,y2,width) {
+		if(!width) {
+			this.set(programs.blankTex,colour,gl.LINES);
+			this.data = this.data.concat([x1,y1,0,0,x2,y2,1,1]);
+		} else {
+			this.set(programs.blankTex,colour,gl.TRIANGLES);
+			var	angle = Math.atan2(y2 - y1, x2 - x1),
+				cos = width/2 * Math.cos(angle),
+				sin = width/2 * Math.sin(angle);
+			this.data = this.data.concat([
+			    x1 + sin, y1 - cos, 1, 0,
+			    x2 + sin, y2 - cos, 1, 0,
+			    x2 - sin, y2 + cos, 0, 1,
+			    x2 - sin, y2 + cos, 0, 1,
+			    x1 - sin, y1 + cos, 0, 1,
+			    x1 + sin, y1 - cos, 1, 0,
+			]);
+		}
+		return this;
+	},
+	drawBox: function(colour,x1,y1,x2,y2) {
+		this.	drawLine(colour,x1,y1,x2,y1).
+			drawLine(colour,x1,y2,x2,y2).
+			drawLine(colour,x1,y1,x1,y2).
+			drawLine(colour,x2,y1,x2,y2);
+	},
+	fillCircle: function(colour,x1,y1,radius) {
+		this.fillRoundedRect(colour,radius,x1,y1,x1,y1);
+	},
+	_makeCorners: function(r) {
 		var pts = [],
 			x = r, y = 0,
 			theta = 2 * Math.PI / (r*4),
@@ -178,418 +264,769 @@ function UIContext() {
 			pts.push([px,py,x,y]);
 		}
 		return pts;
-	};
-	ctx.fillRoundedRect = function(colour,margin,x1,y1,x2,y2) {
-		var corner = ctx.corners[margin] = ctx.corners[margin] || ctx.makeCorners(margin),
-			pts = [], p = 0,
-			addPoint = function(pt,x,xdir,y,ydir) {
-				pts[p++] = x + xdir*pt[0]; pts[p++] = y + ydir*pt[1];
-				pts[p++] = 0; pts[p++] = 0;
-				pts[p++] = x + xdir*pt[2]; pts[p++] = y + ydir*pt[3];
-				pts[p++] = 1; pts[p++] = 0;
-				pts[p++] = x; pts[p++] = y;
-				pts[p++] = 1; pts[p++] = 1;
-			};
+	},
+	fillRoundedRect: function(colour,margin,x1,y1,x2,y2) {
+		var	corner = UIContext.corners[margin] = UIContext.corners[margin] || this._makeCorners(margin),
+			pts = [],
+			addPoint = this._fillRoundedRect_addPoint,
+			drawRect = this.drawRect;
 		for(var pt in corner) {
 			pt = corner[pt];
-			addPoint(pt,x1,-1,y1,-1);
-			addPoint(pt,x2,+1,y1,-1);
-			addPoint(pt,x1,-1,y2,+1);
-			addPoint(pt,x2,+1,y2,+1);
+			addPoint(pts,pt,x1,-1,y1,-1);
+			addPoint(pts,pt,x2,+1,y1,-1);
+			addPoint(pts,pt,x1,-1,y2,+1);
+			addPoint(pts,pt,x2,+1,y2,+1);
 		}
-		ctx.drawRect(ctx.blank,colour,x1,y1-margin,x2,y2+margin,0,0,1,1); // sets up right texture and colour buffer
-		ctx.drawRect(ctx.blank,colour,x1-margin,y1,x1,y2,0,0,1,1);
-		ctx.drawRect(ctx.blank,colour,x2,y1,x2+margin,y2,0,0,1,1);
-		ctx.data = ctx.data.concat(pts);
-	};
-	ctx.drawRoundedRect = function(colour,margin,width,x1,y1,x2,y2) {
-		var corner = ctx.corners[margin] = ctx.corners[margin] || ctx.makeCorners(margin),
-			pts = [], p = 0, scale = 1.0 - width/margin,
-			addPoint = function(pt,x,xdir,y,ydir) {
-				pts[p++] = x + xdir*pt[0]; pts[p++] = y + ydir*pt[1];
-				pts[p++] = 0; pts[p++] = 0;
-				pts[p++] = x + xdir*pt[2]; pts[p++] = y + ydir*pt[3];
-				pts[p++] = 1; pts[p++] = 0;
-				pts[p++] = x + xdir*pt[0]*scale; pts[p++] = y + ydir*pt[1]*scale;
-				pts[p++] = 1; pts[p++] = 1;
-				pts[p++] = x + xdir*pt[2]; pts[p++] = y + ydir*pt[3];
-				pts[p++] = 1; pts[p++] = 0;
-				pts[p++] = x + xdir*pt[0]*scale; pts[p++] = y + ydir*pt[1]*scale;
-				pts[p++] = 1; pts[p++] = 1;
-				pts[p++] = x + xdir*pt[2]*scale; pts[p++] = y + ydir*pt[3]*scale;
-				pts[p++] = 1; pts[p++] = 1;
-			};
+		drawRect.call(this,programs.blankTex,colour,x1,y1-margin,x2,y2+margin,0,0,1,1); // sets up right texture and colour buffer
+		drawRect.call(this,programs.blankTex,colour,x1-margin,y1,x1,y2,0,0,1,1);
+		drawRect.call(this,programs.blankTex,colour,x2,y1,x2+margin,y2,0,0,1,1);
+		this.data = this.data.concat(pts);
+	},
+	_fillRoundedRect_addPoint: function(pts,pt,x,xdir,y,ydir) {
+		pts.push(
+			x + xdir*pt[0], y + ydir*pt[1],
+			0, 0,
+			x + xdir*pt[2], y + ydir*pt[3],
+			1, 0,
+			x, y,
+			1, 1
+		);
+	},
+	drawRoundedRect: function(colour,margin,width,x1,y1,x2,y2) {
+		var corner = UIContext.corners[margin] = UIContext.corners[margin] || this._makeCorners(margin),
+			pts = [],
+			scale = 1.0 - width/margin,
+			addPoint = this._drawRoundedRect_addPoint,
+			drawRect = this.drawRect;
 		for(var pt in corner) {
 			pt = corner[pt];
-			addPoint(pt,x1,-1,y1,-1);
-			addPoint(pt,x2,+1,y1,-1);
-			addPoint(pt,x1,-1,y2,+1);
-			addPoint(pt,x2,+1,y2,+1);
+			addPoint(pts,scale,pt,x1,-1,y1,-1);
+			addPoint(pts,scale,pt,x2,+1,y1,-1);
+			addPoint(pts,scale,pt,x1,-1,y2,+1);
+			addPoint(pts,scale,pt,x2,+1,y2,+1);
 		}
-		ctx.drawRect(ctx.blank,colour,x1,y1-margin,x2,y1-margin+width,0,0,1,1); // sets up right texture and colour buffer
-		ctx.drawRect(ctx.blank,colour,x1,y2+margin-width,x2,y2+margin,0,0,1,1);
-		ctx.drawRect(ctx.blank,colour,x1-margin,y1,x1-margin+width,y2,0,0,1,1);
-		ctx.drawRect(ctx.blank,colour,x2+margin-width,y1,x2+margin,y2,0,0,1,1);
-		ctx.data = ctx.data.concat(pts);
-	};
-	ctx.draw = function(mvp) {
-		gl.useProgram(UIContext.program);
+		drawRect.call(programs.blankTex,colour,x1,y1-margin,x2,y1-margin+width,0,0,1,1); // sets up right texture and colour buffer
+		drawRect.call(programs.blankTex,colour,x1,y2+margin-width,x2,y2+margin,0,0,1,1);
+		drawRect.call(programs.blankTex,colour,x1-margin,y1,x1-margin+width,y2,0,0,1,1);
+		drawRect.call(programs.blankTex,colour,x2+margin-width,y1,x2+margin,y2,0,0,1,1);
+		this.data = this.data.concat(pts);
+	},
+	_drawRoundedRect_addPoint: function(pts,scale,pt,x,xdir,y,ydir) {
+		pts.push(
+			x + xdir*pt[0], y + ydir*pt[1],
+			0, 0,
+			x + xdir*pt[2], y + ydir*pt[3],
+			1, 0,
+			x + xdir*pt[0]*scale, y + ydir*pt[1]*scale,
+			1, 1,
+			x + xdir*pt[2], y + ydir*pt[3],
+			1, 0,
+			x + xdir*pt[0]*scale, y + ydir*pt[1]*scale,
+			1, 1,
+			x + xdir*pt[2]*scale, y + ydir*pt[3]*scale,
+			1, 1
+		);
+	},
+	_initShader: function(mvp,program) {
+		gl.useProgram(program);
 		gl.disable(gl.CULL_FACE);
 		gl.disable(gl.DEPTH_TEST);
-		gl.uniformMatrix4fv(UIContext.program.mvp,false,mvp);
-		gl.uniform1i(UIContext.program.texture,0);
-		gl.uniform1i(UIContext.program.z,0.6);
-		gl.bindBuffer(gl.ARRAY_BUFFER,ctx.vbo);
+		gl.uniformMatrix4fv(program.mvp,false,mvp);
+		gl.uniform1i(program.texture,0);
+		gl.uniform1f(program.z,0.6);
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.enableVertexAttribArray(UIContext.program.vertex);
-		gl.enableVertexAttribArray(UIContext.program.texcoord);
-		for(var buffer in ctx.buffers) {
-			buffer = ctx.buffers[buffer];
-			var len = (buffer.stop >= 0? buffer.stop: ctx.data)-buffer.start;
-			if(!len) continue;
-			gl.bindTexture(gl.TEXTURE_2D,buffer.texture);
-			gl.uniform4fv(UIContext.program.colour,buffer.colour);
-			gl.vertexAttribPointer(UIContext.program.vertex,2,gl.FLOAT,false,16,0);
-			gl.vertexAttribPointer(UIContext.program.texcoord,2,gl.FLOAT,false,16,8);
-			gl.drawArrays(gl.TRIANGLES,buffer.start/4,len/4);
-		}
-		gl.disableVertexAttribArray(UIContext.program.vertex);
-		gl.disableVertexAttribArray(UIContext.program.texcoord);
+		gl.enableVertexAttribArray(program.vertex);
+		gl.enableVertexAttribArray(program.texcoord);
+	},
+	_deinitShader: function(program) {
+		gl.disableVertexAttribArray(program.vertex);
+		gl.disableVertexAttribArray(program.texcoord);
 		gl.bindTexture(gl.TEXTURE_2D,null);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.enable(gl.DEPTH_TEST);
 		gl.enable(gl.CULL_FACE);
-	}
-	return ctx;
+		gl.useProgram(null);
+	},
+	draw: function(mvp,program,colour) {
+		program = program || UIContext.program;
+		this.drawCount++;
+		var inited = false;
+		for(var buffer in this.buffers) {
+			buffer = this.buffers[buffer];
+			if(buffer.inject) {
+				if(inited) {
+					this._deinitShader(program);
+					inited = false;
+				}
+				buffer.inject.apply(this,buffer.injectArgs);
+				continue;
+			} else if(buffer.transform) {
+				mvp = buffer.transformArgs?
+					buffer.transform.apply(this,[mvp].concat(buffer.transformArgs)):
+					buffer.transform.call(this,mvp);
+				if(inited)
+					gl.uniformMatrix4fv(program.mvp,false,mvp);
+				continue;
+			}
+			var len = (buffer.stop >= 0? buffer.stop: this.data)-buffer.start;
+			if(!len) continue;
+			if(!inited) {
+				this._initShader(mvp,program);
+				inited = true;
+			}
+			gl.bindTexture(gl.TEXTURE_2D,buffer.texture);
+			if(colour)
+				gl.uniform4fv(program.colour,[buffer.colour[0]*colour[0],buffer.colour[1]*colour[1],buffer.colour[2]*colour[2],buffer.colour[3]*colour[3]]);
+			else
+				gl.uniform4fv(program.colour,buffer.colour);
+			gl.vertexAttribPointer(program.vertex,2,gl.FLOAT,false,16,0);
+			gl.vertexAttribPointer(program.texcoord,2,gl.FLOAT,false,16,8);
+			gl.drawArrays(buffer.mode,buffer.start/4,len/4);
+		}
+		if(inited)
+			this._deinitShader(program);
+	},
 };
 
-function UIWindow(modal,ctrl) {
-	var win = {};
-	win.modal = modal;
-	win.ctrl = null;
-	win.ctx = UIContext();
-	win.mvp = null;
-	win.isDirty = true;
-	win.dirty = function() { win.isDirty = true; }
-	win.draw = function(canvas) {
-		if(win.ctx.width != canvas.offsetWidth || win.ctx.height != canvas.offsetHeight || !win.mvp) {
-			win.ctx.width = canvas.offsetWidth;
-			win.ctx.height = canvas.offsetHeight;
-			win.isDirty = true;
-			win.mvp = new Float32Array(createOrtho2D(0,win.ctx.width,win.ctx.height,0));
+function UIWindow(modal,ctrl,tag) {
+	assert(this !== window);
+	this.mvp = null;
+	this.isDirty = true;
+	this.needsLayout = true;
+	this.showScheduled = false;
+	this.hideScheduled = false;
+	this.modal = modal;
+	this.ctrl = null;
+	this.ctx = new UIContext();
+	this.id = UI.windowIdSeq++; // for debug info
+	this.tag = tag;
+	this.setCtrl(ctrl);
+};
+UIWindow.prototype = {
+	dirty: function() { this.isDirty = true; },
+	draw: function(canvas) {
+		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight || !this.mvp) {
+			this.ctx.width = canvas.offsetWidth;
+			this.ctx.height = canvas.offsetHeight;
+			this.isDirty = true;
+			this.mvp = new Float32Array(createOrtho2D(0,this.ctx.width,this.ctx.height,0));
 		}
-		if(win.isDirty) {
-			win.ctx.clear();
-			if(win.modal)
-				win.ctx.fillRect(UIDefaults.modalClear,0,0,win.ctx.width,win.ctx.height);
-			var draw = function(node) {
-				node.isDirty = false;
-				node.draw(win.ctx);
-				return true;
-			};
-			win.isDirty = false;
-			win.walk(draw);
-			win.ctx.finish();
+		if(this.needsLayout)
+			this.performLayout();
+		if(this.isDirty) {
+			this.ctx.clear();
+			if(this.modal)
+				this.ctx.fillRect(UI.defaults.modalClear,0,0,this.ctx.width,this.ctx.height);
+			this.isDirty = false;
+			this.walk(this._draw);
+			this.ctx.finish();
 		}
-		win.ctx.draw(win.mvp);
-	};
-	win.walk = function(cb) {
-		var visit = function(ctrl) {
-			if(cb(ctrl))
-				for(var child in ctrl.children)
-					visit(ctrl.children[child]);
-		};
-		if(win.ctrl)
-			visit(win.ctrl);
+		this.ctx.draw(this.mvp);
 	},
-	win.isShown = function() {
-		return UIWindows.indexOf(win) != -1;
-	};
-	win.hide = function() {
-		var idx = UIWindows.indexOf(win);
-		if(idx != -1)
-			UIWindows.splice(idx,1);
-	};
-	win.show = function() {
-		win.hide();
-		win.layout();
-		if(win.modal)
-			UIWindows.push(win);
-		else
-			UIWindows.unshift(win);
-	};
-	win.dismiss = function() {
-		if(win.modal && win.isShown()) {
-			win.hide();
-			if(win.onDismiss)
-				win.onDismiss();
+	_draw: function(ctrl) {
+		if(!ctrl.visible)
+			return false;
+		ctrl.isDirty = false;
+		ctrl.draw(this.ctx);
+		return true;
+	},
+	walk: function(cb,ctrl) {
+		ctrl = ctrl || this.ctrl;
+		if(!ctrl) return;
+		if(cb.call(this,ctrl)) {
+			for(var child in ctrl.children) {
+				child = ctrl.children[child];
+				if(child)
+					this.walk(cb,child);
+			}
 		}
-	}	
-	win.getFont = function() { return "default" in UIFonts? UIFonts["default"]: null; };
-	win.getBgColour = function() { return UIDefaults.bgColour; };
-	win.getFgColour = function() { return UIDefaults.fgColour; };
-	win.layout = function() { if(win.ctrl) win.ctrl.layout(); };
-	win.window = function() { return win; }
-	win.onClick = function(evt,keys) { return win.ctrl? win.ctrl.onClick(evt,keys): false; }
-	win.onContextMenu = function(evt,keys) { win.dismiss(); return win.modal; }
-	win.setCtrl = function(ctrl) {
-		win.ctrl = ctrl;
-		win.dirty();
+	},
+	find: function(tag) {
+		var ret = null;
+		this.walk(function(ctrl) {
+			if(ctrl && ctrl.tag && ctrl.tag == tag)
+				ret = ctrl;
+			return !ret;
+		});
+		return ret;
+	},
+	_changeVisibility: function() {
+		if(this.showScheduled) {
+			this.showScheduled = false;
+			if(this.isShown())
+				this.hide();
+			if(this.modal) {
+				UI.windows.push(this);
+			} else {
+				for(var i=UI.windows.length-1; i>=0; i--)
+					if(!UI.windows[i].modal) {
+						UI.windows.splice(i+1,0,this);
+						return;
+					}
+				UI.windows.unshift(this);
+			}
+		} else if(this.hideScheduled) {
+			this.hideScheduled = false;
+			var idx = UI.windows.indexOf(this);
+			if(idx != -1)
+				UI.windows.splice(idx,1);
+		}
+	},
+	isShown: function() { return this.showScheduled || (UI.windows.indexOf(this) != -1 && !this.hideScheduled); },
+	hide: function() {
+		var self = this;
+		this.showScheduled = false;
+		this.hideScheduled = true;
+		schedule(function() { self._changeVisibility(); });
+	},
+	show: function() {
+		var self = this;
+		this.showScheduled = true;
+		this.hideScheduled = false;
+		schedule(function() { self._changeVisibility(); });
+	},
+	dismiss: function() {
+		if(this.modal && this.isShown()) {
+			this.hide();
+			if(this.ctrl && this.ctrl.onDismiss)
+				this.ctrl.onDismiss();
+			if(this.onDismiss)
+				this.onDismiss();
+		}
+	},
+	getFont: function() { return "default" in UI.fonts? UI.fonts["default"]: null; },
+	getBgColour: function() { return UI.defaults.bgColour; },
+	getFgColour: function() { return UI.defaults.fgColour; },
+	layout: function() { this.needsLayout = true; }, // schedule the control to be laid out next time its drawn
+	performLayout: function() { // perform the layout immediately
+		this.needsLayout = false;
+		if(this.ctrl)
+			this.ctrl.layout();
+	},
+	window: function() { return this; },
+	onMouseDown: function(evt,keys) { return this.ctrl && this.ctrl.onMouseDown? this.ctrl.onMouseDown(evt,keys): false; },
+	onMouseMove: function(evt,keys,isMouseDown) { return this.ctrl && this.ctrl.onMouseMove? this.ctrl.onMouseMove(evt,keys,isMouseDown): false; },
+	onMouseUp: function(evt,keys) { return this.ctrl && this.ctrl.onMouseUp? this.ctrl.onMouseUp(evt,keys): false; },
+	onKeyDown: function(evt,keys) { return this.ctrl && this.ctrl.onKeyDown? this.ctrl.onKeyDown(evt,keys): false; },
+	onKeyUp: function(evt,keys) { return this.ctrl && this.ctrl.onKeyUp? this.ctrl.onKeyUp(evt,keys): false; },
+	onMouseWheel: function(evt,amount) { return this.ctrl && this.ctrl.onMouseWheel? this.ctrl.onMouseWheel(evt,amount): false; },
+	onContextMenu: function(evt,keys) {
+		if(this.ctrl && this.ctrl.onContextMenu)
+			return this.ctrl.onContextMenu(evt,keys);
+		this.dismiss();
+		return this.modal;
+	},
+	setCtrl: function(ctrl) {
+		this.ctrl = ctrl;
+		this.dirty();
 		if(!ctrl)
-			win.children = [];
+			this.children = [];
 		else {
-			win.children = [ctrl];
-			ctrl.setParent(win);
+			this.children = [ctrl];
+			ctrl.setParent(this);
 			ctrl.layout();
 		}
-	};
-	win.setCtrl(ctrl);
-	return win;
-};
-
-function drawUI(canvas) {
-	for(var window in UIWindows)
-		UIWindows[window].draw(canvas);
-}
-
-function onMouseDownUI(evt,keys) {
-	for(var i=UIWindows.length; i-->0; ) {
-		var window = UIWindows[i];
-		if(window.onClick(evt,keys) || window.modal)
-			return true;
-	}
-	return false;
-}
-
-function onMouseUpUI(evt,keys) {
-	return false;
-}
-
-function onContextMenuUI(evt,keys) {
-	for(var i=UIWindows.length; i-->0; ) {
-		var window = UIWindows[i];
-		if((window.onContextMenu && window.onContextMenu(evt,keys)) || window.modal)
-			return true;
-	}
-	return false;
-}
-
-var UIDefaults = {
-	hpadding: 5,
-	vpadding: 5,
-	modalClear: [0.9,0.9,1,0.5],
-	btn:{
-		bgColour: [0.3,0.3,0.8,1],
-		txtOutline: [0,0,0,0.5],
-		fgColour: [1,1,1,1],
 	},
-	bgColour: [0.3,0.2,0.2,0.5],
-	fgColour: [1.0,0.0,0.5,1.0],
 };
+
+var UI = {
+	windows: [],
+	windowIdSeq: 0,
+	fonts: {},
+	loadFont: function(name,path,callback) {
+		var xml = null, texture = null;
+		var done = function() {
+			if(xml && texture) {
+				console.log("loaded font",name,path);
+				UI.fonts[name] = new UIFont(xml,texture);
+				if(name == "default")
+					UI.defaults.lineHeight = UI.fonts[name].lineHeight;
+				for(var win in UI.windows)
+					win = UI.windows[win].layout();
+				if(callback)
+					callback(UI.fonts[name]);
+			}
+		};
+		loadFile("image",path+".png",function(arg) {
+			texture = arg;
+			done();
+		});
+		loadFile("xml",path+".xml",function(arg) {
+			xml = arg;
+			done();
+		});
+	},
+	draw: function(canvas) {
+		for(var window in this.windows)
+			this.windows[window].draw(canvas);
+	},
+	onMouseDown: function(evt,keys) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onMouseDown(evt,keys) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onMouseMove: function(evt,keys,isMouseDown) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onMouseMove(evt,keys,isMouseDown) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onMouseUp: function(evt,keys) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onMouseUp(evt,keys) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onKeyDown: function(evt,keys) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onKeyDown(evt,keys) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onKeyUp: function(evt,keys) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onKeyUp(evt,keys) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onMouseWheel: function(evt,amount) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if(window.onMouseWheel(evt,amount) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	onContextMenu: function(evt,keys) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			if((window.onContextMenu && window.onContextMenu(evt,keys)) || window.modal)
+				return true;
+		}
+		return false;
+	},
+	defaults: {
+		hpadding: 5,
+		vpadding: 5,
+		ihpadding: 1,
+		ivpadding: 1,
+		modalClear: [0.9,0.9,1,0.5],
+		btn:{
+			bgColour: [0.3,0.3,0.8,1.0],
+			txtOutline: [0,0,0,0.5],
+			fgColour: [1.0,1.0,1.0,1.0],
+			disabled: {
+				bgColour: [0.3,0.3,0.3,1.0],
+				fgColour: [0.5,0.5,0.5,1.0],
+			},
+		},
+		bgColour: [0.3,0.2,0.2,0.5],
+		fgColour: [1.0,0.0,0.5,1.0],
+		lineHeight: 13,
+		spacerHeight: 3,
+	},
+};
+UI.loadFont("default","bitstream_vera_sans");
 
 function UIComponent() {
-	var ctrl = {};
-	ctrl.x1 = ctrl.x2 = 0;
-	ctrl.y1 = ctrl.y2 = 0;
-	ctrl.pos = function() {
-		return [ctrl.x1,ctrl.y1];
-	};
-	ctrl.setPos = function(pos) {
-		var x = pos[0]-ctrl.x1, y = pos[1]-ctrl.y1;
+	assert(this !== window);
+	this.children = [];
+	this.isDirty = true;
+	this.parent = null;
+	this.x1 = this.y1 = this.x2 = this.y2 = 0;
+}
+UIComponent.prototype = {
+	visible: true,
+	enabled: true,
+	allowClickThru: true, // set to false to consume clicks on it even if no child consumes it 
+	pos: function() { return [this.x1,this.y1]; },
+	setPos: function(pos) {
+		var x = pos[0]-this.x1, y = pos[1]-this.y1;
 		if(!x && !y) return;
-		for(var child in ctrl.children) {
-			child = ctrl.children[child];
-			child.setPos([child.x1+x,child.y1+y]);
+		for(var child in this.children) {
+			child = this.children[child];
+			if(child)
+				child.setPos([child.x1+x,child.y1+y]);
 		}
-		ctrl.x1 += x; ctrl.y1 += y;
-		ctrl.x2 += x; ctrl.y2 += y;
-		ctrl.dirty();
-	};
-	ctrl.setPosVisible = function(pos) {
-		ctrl.setPos([
-			Math.max(0,Math.min(pos[0],canvas.width-ctrl.width())),
-			Math.max(0,Math.min(pos[1],canvas.height-ctrl.height()))]);
-	};
-	ctrl.setSize = function(size) {
-		if(size == ctrl.size()) return;
-		ctrl.x2 = ctrl.x1 + size[0];
-		ctrl.y2 = ctrl.y1 + size[1];
-		ctrl.dirty();
-	};
-	ctrl.width = function() {
-		return ctrl.x2 - ctrl.x1;
-	};
-	ctrl.height = function() {
-		return ctrl.y2 - ctrl.y1;
-	};
-	ctrl.size = function() {
-		return [ctrl.width(),ctrl.height()];
-	};
-	ctrl.preferredSize = function() {
-		return ctrl.size();
-	};
-	ctrl.font = null;
-	ctrl.getFont = function() {
-		return ctrl.font || ctrl.parent.getFont();
-	};
-	ctrl.fgColour = null;
-	ctrl.getFgColour = function() {
-		return ctrl.fgColour || ctrl.parent.getFgColour();
-	};
-	ctrl.bgColour = null;
-	ctrl.getBgColour = function() {
-		return ctrl.bgColour || ctrl.parent.getBgColour();
-	};
-	ctrl.layout = function() {
-		for(var child in ctrl.children)
-			ctrl.children[child].layout();
-		ctrl.setSize(ctrl.preferredSize());
-	};
-	ctrl.draw = function(ctx) {}
-	ctrl.isDirty = true;
-	ctrl.dirty = function() {
-		if(ctrl.isDirty) return;
-		ctrl.isDirty = true;
-		ctrl.parent.dirty();
-	};
-	ctrl.children = [];
-	ctrl.parent = null;
-	ctrl.setParent = function(parent) {
-		ctrl.parent = parent;
-		ctrl.isDirty = true;
-		for(var child in ctrl.children)
-			ctrl.children[child].setParent(ctrl);
-	};
-	ctrl.addChild = function(child) {
-		ctrl.children.push(child);
-		child.setParent(ctrl);
-		ctrl.window().layout();
-	};
-	ctrl.replaceChild = function(from,to) {
-		var i = ctrl.children.indexOf(from);
+		this.x1 += x; this.y1 += y;
+		this.x2 += x; this.y2 += y;
+		this.dirty();
+	},
+	setPosVisible: function(pos) {
+		if(this.window().needsLayout)
+			this.window().performLayout();
+		this.setPos([
+			Math.max(0,Math.min(pos[0],canvas.width-this.width())),
+			Math.max(0,Math.min(pos[1],canvas.height-this.height()))]);
+	},
+	setSize: function(size) {
+		if(size == this.size()) return;
+		this.x2 = this.x1 + size[0];
+		this.y2 = this.y1 + size[1];
+		this.dirty();
+	},
+	setWidth: function(width) {
+		if(width == this.width()) return;
+		this.x2 = this.x1 + width;
+		this.dirty();
+	},
+	width: function() { return this.x2 - this.x1; },
+	height: function() { return this.y2 - this.y1; },
+	size: function() { return [this.width(),this.height()]; },
+	preferredSize: function() { return this.size(); },
+	font: null,
+	getFont: function() { return this.font || this.parent.getFont(); },
+	fgColour: null,
+	getFgColour: function() { return this.fgColour || this.parent.getFgColour(); },
+	bgColour: null,
+	getBgColour: function() { return this.bgColour || this.parent.getBgColour(); },
+	layout: function() {
+		if(this.layoutManager) {
+			this.layoutManager.layout(this);
+		} else {
+			for(var child in this.children) {
+				child = this.children[child];
+				if(child)
+					child.layout();
+			}
+			this.setSize(this.preferredSize());
+		}
+	},
+	draw: function(ctx) {},
+	dirty: function() {
+		if(this.isDirty) return;
+		this.isDirty = true;
+		this.parent.dirty();
+	},
+	setParent: function(parent) {
+		this.parent = parent;
+		this.isDirty = true;
+		for(var child in this.children) {
+			child = this.children[child];
+			if(child)
+				child.setParent(this);
+		}
+	},
+	addChild: function(child) {
+		this.children.push(child);
+		child.setParent(this);
+		this.window().layout();
+	},
+	replaceChild: function(from,to) {
+		var i = this.children.indexOf(from);
 		if(i == -1)
-			ctrl.children.push(to);
+			this.children.push(to);
 		else
-			ctrl.children[i] = to;
-		to.setParent(ctrl);
-		ctrl.window().layout();
-	};
-	ctrl.destroy = function() {
-		if(!ctrl.parent) return;
-		var idx = ctrl.parent.children.indexOf(ctrl);
+			this.children[i] = to;
+		to.setParent(this);
+		this.window().layout();
+	},
+	destroy: function() {
+		if(!this.parent) return;
+		var idx = this.parent.children.indexOf(this);
 		if(idx != -1) {
-			ctrl.parent.children.splice(idx,1);
-			ctrl.parent.window().layout();
+			this.parent.children.splice(idx,1);
+			this.parent.window().layout();
 		}
-	};
-	ctrl.window = function() { return ctrl.parent.window(); }
-	ctrl.onClick = function(evt,keys) {
+	},
+	window: function() { return this.parent.window(); },
+	isMouseInRect: function(evt) {
 		var	x = evt.clientX-evt.target.offsetLeft,
 			y = evt.clientY-evt.target.offsetTop;
-		if(x<ctrl.x1 || x>=ctrl.x2 ||
-			y<ctrl.y1 || y>=ctrl.y2)
+		return this.visible && 
+			x>=this.x1 && x<this.x2 &&
+			y>=this.y1 && y<this.y2;
+	},
+	onMouseDown: function(evt,keys) {
+		if(!this.enabled || !this.isMouseInRect(evt))
 			return false;
-		for(var child in ctrl.children)
-			if(ctrl.children[child].onClick(evt,keys))
+		if(this.onClicked)
+			return this.onClicked(evt,keys);
+		else
+			for(var child in this.children) {
+				child = this.children[child];
+				if(child && child.onMouseDown(evt,keys))
+					return true;
+			}
+		return !this.allowClickThru;
+	},
+	onMouseMove: function(evt,keys,isMouseDown) {
+		if(!this.enabled || !this.isMouseInRect(evt))
+			return false;
+		for(var child in this.children) {
+			child = this.children[child];
+			if(child && child.onMouseMove(evt,keys,isMouseDown))
 				return true;
-		return false;
-	};
-	return ctrl;
-}
+		}
+		return !this.allowClickThru;
+	},
+};
 
-function UILabel(text) {
-	var ctrl = UIComponent(); // poor man's inheritence
-	ctrl.text = text;
-	ctrl.outline = null;
-	ctrl.preferredSize = function() {
-		var font = ctrl.getFont();
-		if(!font) return [0,0];
-		var ret = font.measureText(ctrl.text);
-		if(ctrl.outline)
-			return [ret[0]+3,ret[1]+3];
-		return ret;
-	}
-	ctrl.draw = function(ctx) {
-		if(ctrl.outline) {
-			ctx.drawText(ctrl.getFont(),ctrl.outline,ctrl.x1,ctrl.y1,ctrl.text);
-			ctx.drawText(ctrl.getFont(),ctrl.outline,ctrl.x1,ctrl.y1,ctrl.text);
-			ctx.drawText(ctrl.getFont(),ctrl.outline,ctrl.x1+2,ctrl.y1+2,ctrl.text);
-			ctx.drawText(ctrl.getFont(),ctrl.outline,ctrl.x1+2,ctrl.y1+2,ctrl.text);
-			ctx.drawText(ctrl.getFont(),ctrl.getFgColour(),ctrl.x1+1,ctrl.y1+1,ctrl.text);
-		} else
-			ctx.drawText(ctrl.getFont(),ctrl.getFgColour(),ctrl.x1,ctrl.y1,ctrl.text);
-	}
-	return ctrl;
-}
-
-function UIButton(text,onClick,tag) {
-	var	label = UILabel(text),
-		ctrl = UIPanel([label]);
-	label.outline = UIDefaults.btn.txtOutline;
-	ctrl.bgColour = UIDefaults.btn.bgColour;
-	ctrl.fgColour = UIDefaults.btn.fgColour;
-	ctrl.canFocus = true;
-	if(tag)
-		ctrl.tag = tag;
-	label.onClick = function(evt) {
-		onClick(evt);
-		return true;
-	}
-	return ctrl;
-}
-
-function UIPanel(children,layout) {
-	var ctrl = UIComponent();
-	ctrl.children = children || ctrl.children;
-	ctrl.layout = (layout || UILayoutFlow)(ctrl);
-	ctrl.draw = function(ctx) {
-		var margin = Math.min(UIDefaults.hpadding,UIDefaults.vpadding);
-		ctx.fillRoundedRect(ctrl.getBgColour(),margin,
-			ctrl.x1+margin,ctrl.y1+margin,ctrl.x2-margin,ctrl.y2-margin);
-	};
-	return ctrl;
-}
-	
-function UILayoutFlow(ctrl) {
-	return function() {
-		var h = 0;
+var UILayoutFlow = {
+	layout: function(ctrl) {
+		var	h = 0,
+			hpadding = this.hpadding || UI.defaults.hpadding,
+			vpadding = this.vpadding || UI.defaults.vpadding,
+			ipadding = this.ipadding || UI.defaults.ihpadding;
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
+			if(!child || !child.visible) continue;
 			child.layout();
 			child.setSize(child.preferredSize());
 			h = Math.max(h,child.height());
 		}
-		h += UIDefaults.vpadding*2;
-		var x = UIDefaults.hpadding;
+		h += vpadding*2;
+		var x = hpadding;
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
+			if(!child || !child.visible) continue;
 			child.setPos([ctrl.x1+x,ctrl.y1+(h-child.height())/2]);
-			x += child.width() + UIDefaults.hpadding;
+			x += child.width() + ipadding;
 		}
+		x += (hpadding-ipadding);
 		ctrl.setSize([x,h]);
-	}
-}
+	},
+};
 
-function UILayoutRows(ctrl) {
-	return function() {
-		var w = 0, h = UIDefaults.vpadding;
+var UILayoutRows = {
+	layout: function(ctrl) {
+		var	w = 0,
+			hpadding = this.hpadding || UI.defaults.hpadding,
+			vpadding = this.vpadding || UI.defaults.vpadding,
+			ipadding = this.ipadding || UI.defaults.ivpadding,
+			h = vpadding;
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
+			if(!child || !child.visible) continue;
 			child.layout();
 			child.setSize(child.preferredSize());
-			child.setPos([ctrl.x1+UIDefaults.hpadding,ctrl.y1+h]);
+			child.setPos([ctrl.x1+hpadding,ctrl.y1+h]);
 			w = Math.max(w,child.width());
-			h += child.height() + UIDefaults.vpadding;
+			h += child.height() + ipadding;
 		}
-		ctrl.setSize([w+UIDefaults.hpadding*2,h]);
-	}
+		h += (vpadding-ipadding);
+		for(var child in ctrl.children) {
+			child = ctrl.children[child];
+			if(!child || !child.visible) continue;
+			child.setWidth(w);
+		}
+		ctrl.setSize([w+hpadding*2,h]);
+	},
+};
+
+function UIPanel(children,layout) {
+	UIComponent.call(this);
+	this.children = children || this.children;
+	this.layoutManager = layout || this.layoutManager;
 }
+UIPanel.prototype = {
+	__proto__: UIComponent.prototype,
+	draw: function(ctx) {
+		var margin = Math.min(UI.defaults.hpadding,UI.defaults.vpadding);
+		ctx.fillRoundedRect(this.getBgColour(),margin,
+			this.x1+margin,this.y1+margin,this.x2-margin,this.y2-margin);
+	},
+	layoutManager: UILayoutFlow,
+};
+
+function UILabel(text,outline,tag) {
+	UIComponent.call(this);
+	this.text = text;
+	this.outline = outline || this.outline;
+	this.tag = tag;
+}	
+UILabel.prototype = {
+	__proto__: UIComponent.prototype,
+	outline: false,
+	preferredSize: function() {
+		var font = this.getFont();
+		if(!font || !this.text) return [0,0];
+		var ret = font.measureText(this.text);
+		if(this.outline)
+			return [ret[0]+3,ret[1]+3];
+		return ret;
+	},
+	setText: function(text) {
+		this.text = text;
+		this.window().layout();
+	},
+	draw: function(ctx) {
+		var font = this.getFont();
+		if(this.outline)
+			ctx.drawTextOutlined(font,this.getFgColour(),this.outline,this.x1,this.y1,this.text);
+		else
+			ctx.drawText(font,this.getFgColour(),this.x1,this.y1,this.text);
+	},
+};
+
+function UICtrlIcon(name) {
+	UIComponent.call(this);
+	this.name = name;
+	this.idx = this.mapping.indexOf(this.name);
+	assert(this.idx >= 0,"unsupported mapping: "+this.name);
+}		
+UICtrlIcon.prototype = {
+	__proto__: UIComponent.prototype,
+	mapping: ["combo","submenu","checked","unchecked"],
+	preferredSize: function() { return [UI.defaults.lineHeight,UI.defaults.lineHeight]; },
+	draw: function(ctx) {
+		if(!this.tex) return;
+		var numIcons = this.tex.height / this.tex.width;
+		ctx.drawRect(this.tex,this.getFgColour(),
+			Math.max(this.x1,this.x2-this.height()),this.y1,
+			this.x2,this.y2,
+			0,this.idx/numIcons,
+			1,(this.idx+1)/numIcons);
+	},
+};
+loadFile("image","data/ctrl_icons.png",function(tex) { UICtrlIcon.prototype.tex = tex; });
+
+function UIButton(text,onClick,tag,leftIcon,rightIcon) {
+	assert(this != window);
+	this.label = new UILabel(text,UI.defaults.btn.txtOutline);
+	UIPanel.call(this,[leftIcon,this.label,rightIcon]);
+	this.onClicked = onClick;
+	this.tag = tag;
+}
+UIButton.prototype = {
+	__proto__: UIPanel.prototype,
+	getBgColour: function() {
+		return this.enabled? this.bgColour || UI.defaults.btn.bgColour: UI.defaults.btn.disabled.bgColour;
+	},
+	getFgColour: function() {
+		return this.enabled? this.fgColour || UI.defaults.btn.fgColour: UI.defaults.btn.disabled.fgColour;
+	},
+	canFocus: true,
+	setText: function(text) {
+		var undefined;
+		for(var child in this.children) {
+			child = this.children[child];
+			if(child && child.text !== undefined) {
+				child.setText(text);
+				return;
+			}
+		};
+	},
+};
+
+function UIViewport(view) {
+	UIComponent.call(this);
+	this.view = view;
+	this.setViewport();
+}
+UIViewport.prototype = {
+	__proto__: UIComponent.prototype,
+	draw: function(ctx) {
+		ctx.inject(this.doDraw,this);
+	},
+	doDraw: function(self) {
+		// this == UIContext
+		var fullsize = self.isFullSize();
+		if(!fullsize) {
+			var	oldViewport = gl.getParameter(gl.VIEWPORT),
+				viewport = self.viewport;
+			gl.viewport(viewport[0],viewport[1],viewport[2],viewport[3]);
+			gl.enable(gl.SCISSOR_TEST);
+			gl.scissor(viewport[0],viewport[1],viewport[2],viewport[3]);
+		}
+		self.view.render(self.viewport);
+		if(!fullsize) {
+			gl.disable(gl.SCISSOR_TEST);
+			gl.viewport(oldViewport[0],oldViewport[1],oldViewport[2],oldViewport[3]);
+		}
+	},
+	isFullSize: function() {
+		return this.x1==0 && this.y1==0 && this.x2 == canvas.width && this.y2 == canvas.height;
+	},
+	setViewport: function() {
+		this.viewport = [this.x1,canvas.height-this.y1-this.height(),this.width(),this.height()];
+	},
+	setPos: function(pos) {
+		UIComponent.prototype.setPos.call(this,pos);
+		this.setViewport();
+	},
+	setSize: function(size) {
+		UIComponent.prototype.setSize.call(this,size);
+		this.setViewport();
+	},
+};
+
+function VSpacer() {
+	UIComponent.call(this);
+}
+VSpacer.prototype = {
+	__proto__: UIComponent.prototype,
+	preferredSize: function() { return [0,UI.defaults.spacerHeight]; },
+};
+
+function UIComboBox(options,idx,onSelect,tag,title) {
+	this.options = options;
+	this.idx = idx;
+	this.onSelect = onSelect;
+	this.title = title;
+	title = title || options[idx].name || options[idx];
+	UIButton.call(this,title,this.onClicked,tag,null,new UICtrlIcon("combo"));
+	this.label.preferredSize = function() {
+		var	ret = [0,0],
+			font = this.getFont();
+		if(!font) return ret;
+		if(title)
+			ret = font.measureText(title);
+		else
+			for(var idx in options) {
+				var sz = font.measureText(options[idx].name || options[idx]);
+				ret[0] = Math.max(ret[0],sz[0]);
+				ret[1] = Math.max(ret[1],sz[1]);
+			}
+		if(this.outline)
+			return [ret[0]+3,ret[1]+3];
+		return ret;
+	};
+}
+UIComboBox.prototype = {
+	__proto__: UIButton.prototype,
+	onClicked: function(evt,keys) {
+		var	ctrl = this,
+			list = new UIPanel([],UILayoutRows),
+			menu = new UIWindow(true,list);
+		for(var idx in this.options) {
+			list.addChild(new UIButton(this.options[idx].name || this.options[idx],function() {
+				ctrl.setIdx(this.tag);
+				menu.dismiss();
+				if(ctrl.onSelect)
+					ctrl.onSelect(ctrl.options[ctrl.idx]);
+				return true;
+			},idx,new UICtrlIcon(idx==this.idx?"checked":"unchecked")));
+		}
+		menu.layout();
+		list.setPosVisible(this.pos());
+		menu.show();
+		return true;
+	},
+	setIdx: function(idx) {
+		this.idx = idx;
+		var label = this.title || this.options[idx].name || ""+this.options[idx];
+		this.setText(label);		
+	},
+};
 
 function Perf() {
-	var perf = UIComponent();
-	UIWindow(false,perf); // creates a window for it
-	perf.label = UILabel("fps");
-	perf.addChild(UIPanel([perf.label]));
+	var perf = new UIComponent();
+	new UIWindow(false,perf); // creates a window for it
+	perf.label = new UILabel("fps");
+	perf.addChild(new UIPanel([perf.label]));
 	perf.data = new Float32Array(2*6*60*3),
 	perf.slot = 0,
 	perf.now = function() { return Date.now()/1000.0; };

@@ -1,5 +1,37 @@
+/* https://github.com/williame/barebones.js project
+This file contains various utility functions for loading textures, setting up
+matrices, doing vector math and determining ray/triangle intersections.
+
+* The capsule intersection functions are broken.  Ignore them.
+
+BSD LICENSE:
+
+Copyright (c) 2013, William Edwards
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the <organization> nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.*/
+
 gl.activeTexture(gl.TEXTURE0);
-gl.clearColor(0,0,0,1);
 gl.enable(gl.DEPTH_TEST);
 gl.depthFunc(gl.LEQUAL);
 gl.enable(gl.BLEND);
@@ -8,12 +40,13 @@ gl.enable(gl.CULL_FACE);
 gl.frontFace(gl.CCW);
 gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 
-var anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
+var	anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
 		gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || 
 		gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic"),
 	max_anisotropy = anisotropic? gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT): 0,
 	anisotropy = max_anisotropy,
-	_textures = [];	
+	_textures = [],
+	OPAQUE = new Float32Array([1,1,1,1]);
 
 function set_anisotropy(anisotropy) {
 	if(!max_anisotropy) return;
@@ -26,7 +59,6 @@ function set_anisotropy(anisotropy) {
 	gl.bindTexture(gl.TEXTURE_2D,null);
 }
 
-
 function createShader(str,type) {
 	if(!window.x_shaders) window.x_shaders = [];
 	var shader = window.x_shaders[[str,type]];
@@ -34,14 +66,17 @@ function createShader(str,type) {
 		shader = gl.createShader(type);
 		gl.shaderSource(shader,str);
 		gl.compileShader(shader);
-		if (!gl.getShaderParameter(shader,gl.COMPILE_STATUS))
-			throw gl.getShaderInfoLog(shader);
+		if (!gl.getShaderParameter(shader,gl.COMPILE_STATUS)) {
+			console.log("bad shader!",type,str);
+			console.log("gl says:",gl.getShaderInfoLog(shader));
+			fail("error compiling shader");
+		}
 		window.x_shaders[[str,type]] = shader;
 	}
 	return shader;
 }
 
-function createProgram(vstr,fstr) {
+function createProgram(vstr,fstr,uniforms,attributes) {
 	if(!window.x_programs) window.x_programs = [];
 	var program = window.x_programs[[vstr,fstr]];
 	if(!program) {
@@ -53,11 +88,19 @@ function createProgram(vstr,fstr) {
 		gl.linkProgram(program);
 		window.x_programs[[vstr,fstr]] = program;
 	}
+	for(var uniform in uniforms || []) {
+		uniform = uniforms[uniform];
+		program[uniform] = gl.getUniformLocation(program,uniform);
+	}
+	for(var attrib in attributes || []) {
+		attrib = attributes[attrib];
+		program[attrib] = gl.getAttribLocation(program,attrib);
+	}
 	return program;
 }
 
-function createTexture(width,height,data) {
-	var tex = gl.createTexture();
+function createTexture(tex,width,height,data,nearestInterpolation) {
+	tex = tex || gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D,tex);
 	tex.width = width || data.width;
 	tex.height = height || data.height;
@@ -65,18 +108,19 @@ function createTexture(width,height,data) {
 		gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,width,height,0,gl.RGBA,gl.UNSIGNED_BYTE,data || null);
 	else
 		gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,data);
-	if(anisotropy)
+	if(!nearestInterpolation && anisotropic) {
 		gl.texParameterf(gl.TEXTURE_2D,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,anisotropy);
+		_textures.push(tex);
+	}
 	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
 	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-	if(!(tex.width&(tex.width-1)) && !(tex.height&(tex.height-1))) { //pow2
+	gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,nearestInterpolation?gl.NEAREST:gl.LINEAR);
+	if(!nearestInterpolation && !(tex.width&(tex.width-1)) && !(tex.height&(tex.height-1))) { //pow2
 		gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
 		gl.generateMipmap(gl.TEXTURE_2D);
 	} else
-		gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,nearestInterpolation?gl.NEAREST:gl.LINEAR);
 	gl.bindTexture(gl.TEXTURE_2D,null);
-	_textures.push(tex);
 	return tex;
 }
 
@@ -154,11 +198,17 @@ function unproject(x,y,mvMatrix,pMatrix,viewport) {
 	return [near,vec3_sub(far,near)];
 }
 
+function mat4_mat3(m) { // upper left
+	return [m[0],m[1],m[2],
+		m[4],m[5],m[6],
+		m[8],m[9],m[10]];
+}
+
 function mat4_translation(v) {
 	return [1,0,0,0,
 		0,1,0,0,
 		0,0,1,0,
-		v[0],v[1],v[2],1];
+		v[0],v[1],v[2]||0,1];
 }
 
 function mat4_rotation(theta,v) {
@@ -172,19 +222,18 @@ function mat4_rotation(theta,v) {
 		0, 0, 0, 1];
 }
 
-function mat4_scale(factor) {
+function mat4_scale(factor,y,z,w) {
 	return [factor,0,0,0,
-		0,factor,0,0,
-		0,0,factor,0,
-		0,0,0,1];
+		0,y||factor,0,0,
+		0,0,z||factor,0,
+		0,0,0,w||1];
 }
 
-function mat4_identity() {
-	return [1,0,0,0,
-		0,1,0,0,
-		0,0,1,0,
-		0,0,0,1];
-}
+var mat4_identity = [
+	1,0,0,0,
+	0,1,0,0,
+	0,0,1,0,
+	0,0,0,1];
 
 function mat4_multiply(a,b) {
         return [b[0]*a[0] + b[1]*a[4] + b[2]*a[8] + b[3]*a[12],
@@ -265,6 +314,10 @@ function mat4_vec4_multiply(m,v) {
 
 function vec4_vec3(v) {
 	return [v[0]/v[3], v[1]/v[3], v[2]/v[3]];
+}
+
+function vec4_scale(v,f) {
+	return [v[0]*f,v[1]*f,v[2]*f,v[3]*f];
 }
 
 function quat_multiply(a,b) {
@@ -381,7 +434,11 @@ function vec3_cross(a,b) {
 }
 
 function vec3_length(v) {
-	return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+	return Math.sqrt(vec3_length_sqrd(v));
+}
+
+function vec3_length_sqrd(v) {
+	return v[0]*v[0]+v[1]*v[1]+v[2]*v[2];
 }
 
 function vec3_vec4(v,w) {
@@ -426,7 +483,7 @@ function quat_normalise(q) {
 	return q;
 }
 
-function triangle_ray_intersection(a,b,c,ray_origin,ray_dir,n,is_seg) {
+function triangle_ray_intersection(a,b,c,ray_origin,ray_dir,n,is_seg,is_infinite) {
 	// http://softsurfer.com/Archive/algorithm_0105/algorithm_0105.htm#intersect_RayTriangle%28%29
 	// get triangle edge vectors and plane normal
 	var u = vec3_sub(b,a);
@@ -439,7 +496,7 @@ function triangle_ray_intersection(a,b,c,ray_origin,ray_dir,n,is_seg) {
 	var i = -vec3_dot(n,w0);
 	// get intersect point of ray with triangle plane
 	var k = i / j;
-	if(k < 0.0) return null; // ray goes away from triangle
+	if(k < 0.0 && !is_infinite) return null; // ray goes away from triangle
 	if(is_seg && k > 1.0) return null; // for a segment, also test if (k > 1.0) => no intersect
 	var hit = vec3_add(ray_origin,vec3_scale(ray_dir,k)); // intersect point of ray and plane
 	// is I inside T?
@@ -466,6 +523,32 @@ function sphere_ray_intersects(sphere,ray_origin,ray_dir) {
 	if(discriminant < 0)
 		return null;
 	return [a*2,-b,discriminant];
+}
+
+function sphere_ray_intersection2(sphere,ray_origin,ray_dir) {
+	var	a = vec3_dot(ray_dir,ray_dir),
+		b = vec3_dot(vec3_scale(ray_dir,2),ray_origin),
+		c = vec3_dot(ray_origin,ray_origin)-(sphere[3]*sphere[3]),
+	//Find discriminant
+		disc = b * b - 4 * a * c;
+	// if discriminant is negative there are no real roots 
+	if (disc < 0) return null;
+	// compute q as described above
+	var	distSqrt = Math.sqrt(disc),
+		q = (b<0)? (-b-distSqrt)/2: (-b+distSqrt)/2,
+	// compute t0 and t1
+		t0 = q / a,
+		t1 = c / q;
+	// make sure t0 is smaller than t1
+	if (t0 > t1) {
+		var temp = t0;
+		t0 = t1;
+		t1 = temp;
+	}
+	// if t1 is less than zero, the object is in the ray's negative direction
+	if (t1 < 0) return null;
+	// if t0 is less than zero, the intersection point is at t1
+	return ray_lerp(ray_origin,ray_dir,(t0<0)? t1: t0);
 }
 
 function vec3_rotate(v,rad,axis1,axis2) {
@@ -512,6 +595,14 @@ function vec3_distance(a,b) {
 
 function vec3_lerp(a,b,k) {
 	return vec3_add(a,vec3_scale(vec3_sub(b,a),k));
+}
+
+function lerp(a,b,k) {
+	return a+(b-a)*k;
+}
+
+function ray_lerp(o,d,k) {
+	return vec3_add(o,vec3_scale(d,k));
 }
 
 function ray_to_line(ray) {
@@ -646,8 +737,8 @@ function plane_point_distance(pos,normal,point) {
 	return vec3_dot(normal,vec3_sub(point,pos));
 }
 
-function float_equ(a,b) {
-	return Math.abs(a-b) < 0.00000001;
+function float_equ(a,b,epsilon) {
+	return Math.abs(a-b) < (epsilon || 0.00000001);
 }
 
 function float_zero(f) {
@@ -951,7 +1042,7 @@ function Sphere(iterations) {
 		vVbo: gl.createBuffer(),
 		iVbo: gl.createBuffer(),
 		indexCount: indices.length,
-		draw: function(pMatrix,mvMatrix,sphere,colour,invert) {
+		draw: function(pMatrix,mvMatrix,sphere,colour,invert,drawOp) {
 			var frontFace = gl.getParameter(gl.FRONT_FACE);
 			gl.frontFace(invert? gl.CCW: gl.CW);
 			mvMatrix = mat4_multiply(mvMatrix,mat4_translation(sphere));
@@ -960,12 +1051,12 @@ function Sphere(iterations) {
 			gl.uniformMatrix4fv(Sphere.program.pMatrix,false,pMatrix);
 			gl.uniformMatrix4fv(Sphere.program.mvMatrix,false,mvMatrix);
 			gl.uniformMatrix4fv(Sphere.program.nMatrix,false,mat4_transpose(mvMatrix));
-			gl.uniform4fv(Sphere.program.colour,colour||[1,1,1,1]);
+			gl.uniform4fv(Sphere.program.colour,colour||OPAQUE);
 			gl.enableVertexAttribArray(Sphere.program.vertex);
 			gl.bindBuffer(gl.ARRAY_BUFFER,self.vVbo);
 			gl.vertexAttribPointer(Sphere.program.vertex,3,gl.FLOAT,false,3*4,0);
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,self.iVbo);
-			gl.drawElements(gl.TRIANGLES,self.indexCount,gl.UNSIGNED_SHORT,0);
+			gl.drawElements(drawOp||gl.TRIANGLES,self.indexCount,gl.UNSIGNED_SHORT,0);
 			gl.disableVertexAttribArray(Sphere.program.vertex);
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
 			gl.bindBuffer(gl.ARRAY_BUFFER,null);
@@ -995,34 +1086,67 @@ function vec3(array,ofs) {
 	return [array[ofs++],array[ofs++],array[ofs++]];
 }
 
+function vec2_sub(a,b) {
+	return [a[0]-b[0],a[1]-b[1]];
+}
+
+function vec2_vec4(v,z,w) {
+	return [v[0],v[1],z,w];
+}
+
+function vec2_add(a,b) {
+	return [a[0]+b[0],a[1]+b[1]];
+}
+
+function vec2_normalise(v) {
+	var mag = Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+	return [v[0]/mag, v[1]/mag];
+}
+
+function vec2_dot(a,b) {
+	return [a[0]*b[0]+a[1]*b[1]];
+}
+
+function vec2_distance_sqrd(a,b) {
+	var d = vec2_sub(a,b);
+	return d[0]*d[0] + d[1]*d[1];
+}
+
+function vec2_scale(v,f) {
+	return [v[0]*f,v[1]*f];
+}
+
 var programs = {
-	blankTex: createTexture(1,1,new Uint8Array([255,255,255,255])),
-	standard: function(cb,uniforms) {
+	blankTex: createTexture(null,1,1,new Uint8Array([255,255,255,255])),
+	standard: function(cb,uniforms,self) {
 		assert(cb);
 		if(!programs.standard.program) {
 			var program = programs.standard.program = createProgram(
 				"precision mediump float;\n"+
 				"varying vec2 texel;\n"+
-				"varying vec3 lighting;\n"+
-				"attribute vec3 vertex;\n"+
-				"attribute vec3 normal;\n"+
+				"varying lowp vec3 lighting;\n"+
+				"uniform float t;\n"+
+				"attribute vec3 vertex1, vertex2;\n"+
+				"attribute vec3 normal1, normal2;\n"+
 				"attribute vec2 texCoord;\n"+
 				"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
-				"uniform vec3 lightDir, ambientLight, lightColour;\n"+
+				"uniform lowp vec3 lightDir, ambientLight, lightColour;\n"+
 				"void main() {\n"+
-				"	vec3 transformed = normalize(nMatrix * vec4(normal,1.0)).xyz;\n"+
+				"	vec3 normal = mix(normal1,normal2,t);\n"+
+				"	vec3 transformed = normalize(nMatrix * vec4(normal,0.0)).xyz;\n"+
 				"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
 				"	lighting = ambientLight + (lightColour*directional);\n"+
-				"	texel = vec2(texCoord.x,texCoord.y);\n"+
+				"	texel = texCoord;\n"+
+				"	vec3 vertex = mix(vertex1,vertex2,t);\n"+
 				"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
 				"}\n",
 				"precision mediump float;\n"+
 				"varying vec2 texel;\n"+
-				"varying vec3 lighting;\n"+
+				"varying lowp vec3 lighting;\n"+
 				"uniform sampler2D texture;\n"+
-				"uniform vec4 colour;\n"+
+				"uniform lowp vec4 colour;\n"+
 				"uniform float fogDensity;\n"+
-				"uniform vec4 fogColour;\n"+
+				"uniform lowp vec4 fogColour;\n"+
 				"const float LOG2 = 1.442695;\n"+
 				"void main() {\n"+
 				"	float z = gl_FragCoord.z / gl_FragCoord.w;\n"+
@@ -1031,44 +1155,311 @@ var programs = {
 				"	vec4 fragColour = texture2D(texture,texel) * colour;\n"+
 				"	fragColour.rgb *= lighting;\n"+
 				"	gl_FragColor = mix(fogColour,fragColour,fogFactor);\n"+
-				"}\n");
-			program.vertex =	gl.getAttribLocation(program,"vertex");
-			program.normal =	gl.getAttribLocation(program,"normal");
-			program.texCoord =	gl.getAttribLocation(program,"texCoord");
-			program.mvMatrix =	gl.getUniformLocation(program,"mvMatrix");
-			program.pMatrix =	gl.getUniformLocation(program,"pMatrix");
-			program.nMatrix =	gl.getUniformLocation(program,"nMatrix");
-			program.texture =	gl.getUniformLocation(program,"texture");
-			program.colour =	gl.getUniformLocation(program,"colour");
-			program.lightDir =	gl.getUniformLocation(program,"lightDir");
-			program.ambientLight =	gl.getUniformLocation(program,"ambientLight");
-			program.lightColour =	gl.getUniformLocation(program,"lightColour");
-			program.fogDensity =	gl.getUniformLocation(program,"fogDensity");
-			program.fogColour =	gl.getUniformLocation(program,"fogColour");
+				"}\n",
+				["pMatrix","mvMatrix","nMatrix","t",
+					"texture","colour",
+					"lightDir","ambientLight","lightColour",
+					"fogDensity","fogColour"],
+				["vertex1","normal1","vertex2","normal2","texCoord"]);
 		} else
 			var program = programs.standard.program;
 		uniforms = uniforms || {};
 		gl.useProgram(program);
-		gl.uniformMatrix4fv(program.pMatrix,false,uniforms.pMatrix || camera.pMatrix);
-		gl.uniformMatrix4fv(program.mvMatrix,false,uniforms.mvMatrix || camera.mvMatrix);
-		gl.uniformMatrix4fv(program.nMatrix,false,uniforms.nMatrix || camera.nMatrix);
-		gl.uniform4fv(program.colour,uniforms.colour || [1,1,1,1]);
+		gl.uniformMatrix4fv(program.pMatrix,false,uniforms.pMatrix);
+		gl.uniformMatrix4fv(program.mvMatrix,false,uniforms.mvMatrix);
+		gl.uniformMatrix4fv(program.nMatrix,false,uniforms.nMatrix);
+		gl.uniform4fv(program.colour,uniforms.colour || OPAQUE);
 		gl.uniform1i(program.texture,0);
 		gl.bindTexture(gl.TEXTURE_2D,uniforms.tex || programs.blankTex);
-		gl.uniform3fv(program.lightDir,uniforms.lightDir || [0.85,0.8,0.75]);
-		gl.uniform3fv(program.ambientLight,uniforms.ambientLight || [0.6,0.6,0.6]);
-		gl.uniform3fv(program.lightColour,uniforms.lightColour || [0.8,0.9,0.75]);
+		gl.uniform3fv(program.lightDir,uniforms.lightDir || vec3_normalise([-3,1,-5]));
+		gl.uniform3fv(program.ambientLight,uniforms.ambientLight || [0.5,0.5,0.5]);
+		gl.uniform3fv(program.lightColour,uniforms.lightColour || [1,1,1]);
 		gl.uniform1f(program.fogDensity,uniforms.fogDensity || 0); // default no fog
 		gl.uniform4fv(program.fogColour,uniforms.fogColour || [1.0,1.0,1.0,0.0]);
+		gl.uniform1f(program.t,uniforms.t || 0);
 		gl.enableVertexAttribArray(program.texCoord);
-		gl.enableVertexAttribArray(program.normal);
-		gl.enableVertexAttribArray(program.vertex);
-		cb(program);
-		gl.disableVertexAttribArray(program.vertex);
-		gl.disableVertexAttribArray(program.normal);
+		gl.enableVertexAttribArray(program.normal1);
+		gl.enableVertexAttribArray(program.normal2);
+		gl.enableVertexAttribArray(program.vertex1);
+		gl.enableVertexAttribArray(program.vertex2);
+		cb.call(self||window,program);
+		gl.disableVertexAttribArray(program.vertex2);
+		gl.disableVertexAttribArray(program.vertex1);
+		gl.disableVertexAttribArray(program.normal2);
+		gl.disableVertexAttribArray(program.normal1);
 		gl.disableVertexAttribArray(program.texCoord);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.bindTexture(gl.TEXTURE_2D,null);
 		gl.useProgram(null);
 	},
 };
+
+function emitCube(blf,trb,array,ofs) {
+	ofs = ofs || 0;
+	var	left = blf[0], right = trb[0],
+		bottom = blf[1], top = trb[1],
+		front = blf[2], back = trb[2],
+		tlb = [left,top,back],
+		trf = [right,top,front],
+		tlf = [left,top,front],
+		brb = [right,bottom,back],
+		blb = [left,bottom,back],
+		brf = [right,bottom,front],
+		emit = function(vec3) {
+			array[ofs++] = vec3[0];
+			array[ofs++] = vec3[1];
+			array[ofs++] = vec3[2];
+		},
+		quad = function(normal,a,b,c,d) {
+			emit(a); emit(normal);    
+			emit(b); emit(normal);
+			emit(c); emit(normal);
+			emit(a); emit(normal);
+			emit(c); emit(normal);
+			emit(d); emit(normal);
+		};
+	quad([1,0,0],blb,tlb,tlf,blf); // left
+	quad([-1,0,0],brf,trf,trb,brb); // right
+	quad([0,0,-1],blf,tlf,trf,brf); // front
+	quad([0,0,1],brb,trb,tlb,blb); // back
+	quad([0,-1,0],tlb,trb,trf,tlf); // up
+	quad([0,1,0],brb,blb,blf,brf); // down
+}
+
+function createCube(blf,trb) {
+	var array = new Float32Array(createCube.numVertices);
+	emitCube(blf,trb,array,0);
+	return array;
+}
+createCube.numVertices = 6*6; // six faces, each two triangles
+
+function Square() {
+	assert(window !== this);
+	this.vbo = gl.createBuffer();
+	this.buf = new Float32Array(4*2*3*2);
+	this.dirty = false;
+}
+Square.prototype = {
+	set: function(ax,az,bx,bz,y) {
+		var ofs = 0;
+		ofs = this._emit(ax,bz,bx,bz,y,0,-1,0,ofs);
+		ofs = this._emit(bx,bz,bx,az,y,0,-1,0,ofs);
+		ofs = this._emit(bx,az,ax,az,y,0,-1,0,ofs);
+		ofs = this._emit(ax,az,ax,bz,y,0,-1,0,ofs);
+		assert(ofs == this.buf.length);
+		this.dirty = true;
+	},
+	_emit: function(ax,az,bx,bz,y,nx,ny,nz,ofs) {
+		var buf = this.buf;
+		buf[ofs++] = ax; buf[ofs++] = y;  buf[ofs++] = az;
+		buf[ofs++] = nx; buf[ofs++] = ny; buf[ofs++] = nz;
+		buf[ofs++] = bx; buf[ofs++] = y;  buf[ofs++] = bz;
+		buf[ofs++] = nx; buf[ofs++] = ny; buf[ofs++] = nz;
+		return ofs;
+	},
+	draw: function(uniforms,colour) {
+		programs.standard(this._draw,{ __proto__: uniforms, colour:colour, },this);
+	},
+	_draw: function(program) {
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+		if(this.dirty) {
+			gl.bufferData(gl.ARRAY_BUFFER,this.buf,gl.STATIC_DRAW);
+			this.dirty = false;
+		}
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
+		gl.lineWidth(4);
+		gl.drawArrays(gl.LINES,0,4*2);
+	},
+};
+
+function BlockBuffer(width,refFactory,arrayFactory) {
+	assert(this !== window);
+	this.width = width;
+	this.refFactory = refFactory;
+	this.arrayFactory = arrayFactory || Float32Array;
+	this.len = 0;
+	this.refs = [];
+	this.size = 32;
+	this.buf = new this.arrayFactory(this.offset(this.size));
+	this.dirty = true;
+	this.ready = false;
+}
+BlockBuffer.prototype = {
+	add: function(ctx,params,ref) {
+		if(this.refs.length == this.size) {
+			this.size *= 2;
+			var old = this.buf;
+			this.buf = new this.arrayFactory(this.offset(this.size));
+			if(this.buf.set)
+				this.buf.set(old);
+			else
+				for(var i=this.offset(this.refs.length); i-->0; )
+					this.buf[i] = old[i];
+		}
+		if(ref) {
+			if(ref.setRefIdx) {
+				ref.setRefIdx(this,ctx,this.refs.length);
+			} else {
+				assert(!ref.idx);
+				ref.idx = this.refs.length;
+			}
+		} else {
+			ref = new this.refFactory(this,ctx,this.refs.length);
+		}
+		this.refs.push(ref);
+		if(ref.set)
+			ref.set(params);
+		this._added(ref);
+		return ref;
+	},
+	_added: function() {
+		this.len = this.refs.length;
+	},
+	offset: function(idx) {
+		return idx*this.width;
+	},
+	move: function(from,to,array) {
+		var sz = this.width;
+		from *= sz;
+		to *= sz;
+		for(var i=0; i<sz; i++,from++,to++)
+			array[to] = array[from];
+	},
+	remove: function(ref) {
+		assert(ref === this.refs[ref.idx]);
+		var tail = this.refs[this.refs.length-1];
+		this.refs[ref.idx] = tail;
+		tail.idx = ref.idx;
+		this.move(this.refs.length-1,ref.idx,this.buf);
+		if(this.prevBuf)
+			this.move(this.refs.length-1,ref.idx,this.prevBuf);
+		this.refs.pop();
+		this.dirty = true;
+	},
+};
+
+function ObjectBuffer(refFactory) {
+	BlockBuffer.call(this,1,refFactory,Array);
+}
+ObjectBuffer.prototype = {
+	__proto__: BlockBuffer.prototype,
+	_added: function(ref) {
+		this.buf[ref.idx] = ref;
+		BlockBuffer.prototype._added.call(this,ref);
+	},
+};
+
+function VertexBuffer(width,refFactory,program,arrayFactory) {
+	BlockBuffer.call(this,width,refFactory,arrayFactory);
+	this.program = program || programs.standard;
+	this.vbo = gl.createBuffer();
+}
+VertexBuffer.prototype = {
+	__proto__: BlockBuffer.prototype,
+	_added: function() {},
+	draw: function(uniforms) {
+		if(!this.ready || !this.len) return;
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+		this.program(this.doDraw,uniforms,this);
+		gl.bindBuffer(gl.ARRAY_BUFFER,null);
+	},
+	update: function() {
+		this.len = this.refs.length;
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+		gl.bufferData(gl.ARRAY_BUFFER,this.buf.subarray(0,this.offset(this.len)),gl.STATIC_DRAW);
+		this.ready = true;
+		this.dirty = false;
+	},
+};	
+
+function Cubes(colour) {
+	VertexBuffer.call(this,createCube.numVertices*6,CubeRef);
+	this.colour = colour;
+}
+Cubes.prototype = {
+	__proto__: VertexBuffer.prototype,
+	doDraw: function(program) {
+		gl.uniform4fv(program.colour,this.colour);
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
+		gl.drawArrays(gl.TRIANGLES,0,this.len*createCube.numVertices);		
+	},
+	step: function() {
+		if(this.dirty)
+			this.update();
+	},
+};
+
+function CubeRef(cubes,pos,idx) {
+	assert(this !== window);
+	this.cubes = cubes;
+	this.pos = pos.slice();
+	this.idx = idx;
+}
+CubeRef.prototype = {
+	border: 0.2,
+	set: function(height) {
+		assert(this === this.cubes.refs[this.idx]);
+		var x = this.pos[0], y = this.pos[1], z = this.pos[2];
+		emitCube([x+this.border,y,z+this.border],
+			[x+(1-this.border),y+height,z+(1-this.border)],
+			this.cubes.buf,
+			this.cubes.offset(this.idx));
+		this.cubes.dirty = true;
+	},
+	remove: function() {
+		this.cubes.remove(this);
+	},
+};
+
+function Line(lines,ctx,idx) {
+	this.lines = lines;
+	this.ctx = ctx;
+	this.idx = idx;
+}
+Line.prototype = {
+	set: function(line) {
+		var lines = this.lines, ofs = lines.offset(this.idx), buf = lines.buf;
+		buf[ofs++] = line[0][0];
+		buf[ofs++] = line[0][1];
+		buf[ofs++] = line[0][2];
+		buf[ofs++] = line[1][0];
+		buf[ofs++] = line[1][1];
+		buf[ofs++] = line[1][2];
+		lines.dirty = true;
+	},
+	remove: function() {
+		this.lines.remove(this);
+	},
+};
+
+function Lines(colour,lineWidth) {
+	VertexBuffer.call(this,6,Line);
+	this.colour = colour;
+	this.lineWidth = lineWidth || 1;
+}
+Lines.prototype = {
+	__proto__: VertexBuffer.prototype,
+	draw: function(uniforms) {
+		if(this.dirty)
+			this.update();
+		VertexBuffer.prototype.draw.call(this,{ __proto__: uniforms, colour: this.colour, });
+	},
+	doDraw: function(program) {
+		gl.lineWidth(this.lineWidth);
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,0);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,0);
+		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,0); // noise
+		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,0); // noise
+		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
+		gl.drawArrays(gl.LINES,0,this.len*2);
+	},
+};
+

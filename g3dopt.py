@@ -1,3 +1,9 @@
+# a Python script for optimising Glest G3D models.
+# To be used in combination with G3DHack.
+# Often, G3D models contain lots of meshes that have the same textures and number of frames;
+# this tool coalesces them.  This increases the possibilities for G3DHack optimisations
+# and reduces the number of draw calls needed to draw the model in-game.
+
 import struct, sys, os
 
 class Reader:

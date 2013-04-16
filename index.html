@@ -1,44 +1,75 @@
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>barebones.js</title>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<style type="text/css">
-html, body { border:0px;margin:0px;padding:0px; color:white; background-color:black;}
-#game-canvas { width:100%; border:0px;margin:0px;padding:0px; }
-</style>
+
+<!-- https://github.com/williame/barebones.js project
+This file contains the basic HTML to show a full-page canvas can call an animation
+loop.
+
+* You make the game() function do whatever you like e.g. create a UIViewport control
+  to draw a 3D scene in
+
+BSD LICENSE:
+
+Copyright (c) 2013, William Edwards
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the <organization> nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. -->
+
 <script type="text/javascript">
 
-var gl, canvas, splash, audio, messages, keys = {}, perf;
+var gl, canvas, audio, messages, keys = {}, mousePos = null;
 
-function game() { // you replace this!
+function game() { //### you replace this!  This is called when the framework has finished loading
+	addMessage(10,"barebones.js says: ","hello world");
 	game.g3d_test = new G3D("data/test.g3d");
-	var win = UIWindow(true,UIPanel([
-		UIPanel([UILabel("this is a test"),
-			UILabel("this too"),
-			UIButton("click me!",function(evt) { win.hide(); }),]),
-			UIPanel([UILabel("this is a test"),UILabel("this too")]),
-	],UILayoutRows));
-	win.show();
 }
 
-function render() { // you replace this!
+function render() { //### you replace or remove this!
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-	var zoom = 2,
+	var zoom = 3,
 		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
 		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
-		nMatrix = mat4_inverse(mat4_transpose(mvMatrix));
+		nMatrix = mat4_mat3(mat4_inverse(mat4_transpose(mvMatrix)));
 	game.g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
 }
 
 function init() {
-	canvas = document.getElementById("game-canvas");
+	if(false /*!window.Worker*/) { // #### enable this check if you want to use web workers
+		document.getElementById("errWebWorkers").style.display = "block";
+		return;
+	}
+	canvas = document.getElementById("main-canvas");
 	try {
-		gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+		var params = { alpha: false };
+		gl = canvas.getContext("webgl",params) || canvas.getContext("experimental-webgl",params);
 	} catch(e) {
 		console.log("Error initializing webGL:",e);
 	}
 	if(!gl) {
 		console.log(gl);
-		alert("Unable to initialize WebGL. Your browser may not support it.");
+		document.getElementById("errWebGL").style.display = "block";
 		return;
 	}
 	window.onerror = function(msg,url,lineno) {
@@ -47,11 +78,13 @@ function init() {
 		fail.error = true;
 		alert("ERROR "+url+"#"+lineno+"\n"+msg);
 	};
-  	window.onresize = function() {
+  	window.onresize = function(evt) {
   		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
-		canvas.width = canvas.offsetWidth;
+  		canvas.width = canvas.offsetWidth;
 		canvas.height = canvas.offsetHeight;
 		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
+		if(window.onResize) // game code hook if its interested
+			window.onResize(evt);
 	};
 	window.onresize();
 	var audioFactory = window.webkitAudioContext || window.mozAudioContext;
@@ -61,9 +94,9 @@ function init() {
 		onMouseDown = function(evt) {
 			evt.cancelBubble = true;
 			isMouseDown = true;
-			if(evt.target !== canvas)
+			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
 				return false;
-			if(!onMouseDownUI(evt,keys) && window.onMouseDown)
+			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
 				window.onMouseDown(evt,keys);
 			schedule.run();
 			return false;
@@ -72,16 +105,34 @@ function init() {
 			evt.cancelBubble = true;
 			if(evt.target !== canvas)
 				return;
-			if(isMouseDown && window.onMouseMove)
-				window.onMouseMove(evt,keys);
+			mousePos = [evt.clientX,evt.clientY];
+			if(!UI.onMouseMove(evt,keys,isMouseDown) && window.onMouseMove)
+				window.onMouseMove(evt,keys,isMouseDown);
 			schedule.run();
+		},
+		onMouseOver = function(evt) {
+			evt.cancelBubble = true;
+			if(isMouseDown)
+				onMouseUp(evt);
+			isMouseDown = false;
+			if(window.onMouseOver)
+				window.onMouseOver(evt);
+		},
+		onMouseOut = function(evt) {
+			evt.cancelBubble = true;
+			if(isMouseDown)
+				onMouseUp(evt);
+			isMouseDown = false;
+			if(window.onMouseOut)
+				window.onMouseOut(evt);
+			mousePos = null;
 		},
 		onMouseUp = function(evt) {
 			evt.cancelBubble = true;
 			isMouseDown = false;
 			if(evt.target !== canvas)
 				return false;
-			if(!onMouseUpUI(evt,keys) && window.onMouseUp)
+			if(!UI.onMouseUp(evt,keys) && window.onMouseUp)
 				window.onMouseUp(evt,keys);
 			schedule.run();
 			return false;
@@ -89,9 +140,9 @@ function init() {
 		onContextMenu = function(evt) {
 			evt.cancelBubble = true;
 			evt.preventDefault();
-			if(!baseMouseEvent(evt))
-				return;
-			if(!onContextMenuUI(evt,keys) && window.onContextMenu)
+			if(evt.target !== canvas)
+				return false;
+			if(!UI.onContextMenu(evt,keys) && window.onContextMenu)
 				window.onContextMenu(evt,keys);
 			schedule.run();
 			return false;
@@ -100,7 +151,7 @@ function init() {
 			evt.cancelBubble = true;
 			if(!keys[evt.which]) {
 				keys[evt.which] = true;
-				if(window.onKeyDown)
+				if(!UI.onKeyDown(evt,keys) && window.onKeyDown)
 					window.onKeyDown(evt,keys);
 			}
 			schedule.run();
@@ -110,38 +161,55 @@ function init() {
 			evt.cancelBubble = true;
 			if(keys[evt.which]) {
 				keys[evt.which] = false;
-				if(window.onKeyUp)
+				if(!UI.onKeyUp(evt,keys) && window.onKeyUp)
 					window.onKeyUp(evt,keys);
 			}
 			schedule.run();
 			return false;
+		},
+		onMouseWheel = function(evt) {
+			evt.cancelBubble = true;
+			var amount = (evt.detail||evt.wheelDelta);
+			if(!UI.onMouseWheel(evt,amount) && window.onZoom)
+				window.onMouseWheel(evt,amount);
 		};
 	var loaded = Waiter(function() {
 			document.addEventListener("mousedown",onMouseDown,true);
 			document.addEventListener("mouseup",onMouseUp,true);
 			document.addEventListener("mousemove",onMouseMove,true);
+			document.addEventListener("mouseover",onMouseOver,true);
+			document.addEventListener("mouseout",onMouseOut,true);
+			document.addEventListener("mousewheel",onMouseWheel,true); //chrome
+			document.addEventListener("DOMMouseScroll",onMouseWheel,true); //FF
 			document.addEventListener("contextmenu",onContextMenu,true);
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
+			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
 			window.focus();
 			window.requestAnimFrame(loop);
-			perf = new Perf();
-			perf.window().show();
 			game();
 		});
 	loadFile("javascript","glutil.js",loaded());
 	loadFile("javascript","ui.js",loaded());
-	loadFile("javascript","g3d.js",loaded());
+	loadFile("javascript","g3d.js",loaded()); // you don't need to load this if you're not openning G3D files
+}
+
+function isOnGithubPages() {
+	return window.location.href.indexOf("github.com/") != -1;
+}
+
+function isLocalFile() {
+	return "file:" === document.location.protocol;
 }
 
 function addMessage(secs,from,text,tag) {
-	var 	f = from? UILabel(from): null,
-		message = UIPanel(f?[f,UILabel(text)]:[UILabel(text)]);
+	var 	f = from? new UILabel(from): null,
+		message = new UIPanel(f?[f,new UILabel(text)]:[new UILabel(text)]);
 	message.bgColour = [0.2,0.2,0.2,1];
 	message.tag = tag;
 	if(f) f.fgColour = [0.8,1,0.8,1];
 	if(!messages) {
-		messages = UIWindow(false,UIPanel([],false,UILayoutRows));
+		messages = new UIWindow(false,new UIPanel([],UILayoutRows),"messages");
 		messages.show();
 	}
 	var old = tag? getMessage(tag): null;
@@ -181,12 +249,13 @@ function fail(msg) {
 	throw fail.error;
 }
 
-function extend(a,b) {
-	for(var attr in b) {
-		a[attr] = b[attr];
-	}
-	return a;
-};
+function startsWith(str,prefix) {
+	return str.indexOf(prefix) == 0;
+}
+
+function endsWith(str,suffix) {
+	return str.indexOf(suffix,str.length-suffix.length) !== -1;
+}
 
 function now() { return (new Date()).getTime(); }
 
@@ -196,12 +265,9 @@ function loop() {
 		window.requestAnimFrame(loop);
 		schedule.run();
 		if(canvas.width && canvas.height) {
-			if(window.render) {
-				(window.perf)
-					perf.tick();
-				render();
-			}
-			drawUI(canvas);
+			if(window.render)
+				window.render();
+			UI.draw(canvas);
 		}
 	} catch(e) {
 		fail.error = e;
@@ -222,36 +288,89 @@ function Waiter(readyCallback) {
 	};
 	waiter.outstanding = [];
 	return waiter;
-}         
+}
+
+function setFile(type,path,bytes) {
+	loadFile.loaded = loadFile.loaded || [];
+	var	key = ""+type+":"+path,
+		obj;
+	if(type == "g3d") {
+		setFile("ArrayBuffer",path,bytes);
+		obj = G3D(path);
+	} else if(type == "ArrayBuffer") {
+		obj = bytes;
+	} else if(type == "json") {
+		obj = bytes;
+		bytes = JSON.stringify(bytes,null,"\t");
+	} else if(type == "image") {
+		var image = new Image();
+		image.onload = function() {
+			loadFile.loaded[key] = createTexture(null,null,null,image);
+		};
+		image.src = "data:image/png;base64,"+btoa(bytes);
+	} else
+		fail("unsupported type: "+type+", "+path);
+	getDirtyFiles()[key] = bytes;
+	if(obj)
+		loadFile.loaded[key] = obj;
+
+}
+
+function getDirtyFiles() {
+	getDirtyFiles.bytes = getDirtyFiles.bytes || [];
+	return getDirtyFiles.bytes;
+}
+
+function clearCachedFiles() {
+	getDirtyFiles.bytes = [];
+	assert(!loadFile.loading || !loadFile.loading.length);
+	loadFile.loading = [];
+	assert(!loadFile.loadingWait || !loadFile.loading.loadingWait);
+	loadFile.loadingWait = [];
+	loadFile.loaded = [];
+}
+
+function getFile(type,path) {
+	var key = ""+type+":"+path;
+	return loadFile.loaded? loadFile.loaded[key] || null: null;
+}
 
 function loadFile(type,path,callback) {
 	loadFile.loading = loadFile.loading || [];
 	loadFile.loadingWait = loadFile.loadingWait || null;
 	loadFile.loaded = loadFile.loaded || [];
+	callback = callback || function(){};
+	var	key = ""+type+":"+path,
+		args = Array.prototype.slice.call(arguments).slice(3);
+	if(key in loadFile.loaded) {
+		console.log("serving",type,path,"from cache...");
+		setTimeout(function() { callback(loadFile.loaded[key]); },0);
+		return;
+	}
+	if(key in loadFile.loading) {
+		console.log("already loading",type,path,"...");
+		loadFile.loading[key].push([callback,args]);
+		return;
+	}
 	console.log("loading",type,path,"...");
-	if(path in loadFile.loaded) {
-		setTimeout(function() { callback(loadFile.loaded[path]); },0);
-		return;
-	}
-	if(path in loadFile.loading) {
-		loadFile.loading[path].push(callback);
-		return;
-	}
-	loadFile.loading[path] = [callback];
+	loadFile.loading[key] = [[callback,args]];
 	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
 	loadFile.loadingWait = setTimeout(function() {
 		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
 		console.log("awaiting load of:",loadFile.loading);
-		},3000);
+	},3000);
 	var done = function(arg) {
-		console.log("loaded",type,path);
-		loadFile.loaded[path] = arg;
-		var callbacks = loadFile.loading[path];
-		delete loadFile.loading[path];
+		console.log("loaded",key);
+		arg = loadFile.loaded[key] = loadFile.loaded[key] || arg; // could have been set by setFile() in meantime
+		var callbacks = loadFile.loading[key];
+		delete loadFile.loading[key];
 		if(!loadFile.loading.length) clearTimeout(loadFile.loadingWait);
-		for(callback in callbacks)
-			if(callbacks[callback])
-				callbacks[callback](arg);
+		for(callback in callbacks) {
+			callback = callbacks[callback];
+			callback[1].unshift(arg);
+			if(callback[0])
+				callback[0].apply(this,callback[1]);
+		}
 	};
 	if(type == "javascript") {
 		var script = document.createElement('script');
@@ -268,9 +387,11 @@ function loadFile(type,path,callback) {
 	} else if(type == "image") {
 		var image = new Image();
 		image.onload = function() {
-			done(createTexture(null,null,image));
+			done(createTexture(null,null,null,image));
 		};
 		image.src = path;
+	} else if(type == "g3d" && window.G3D) {
+		var g3d = new G3D(path,function() { done(g3d); });
 	} else if(type == "xml") {
 		var doc = new XMLHttpRequest();
 		doc.open("GET",path,true);
@@ -279,6 +400,15 @@ function loadFile(type,path,callback) {
 				done(doc.responseXML);
 		};
 		doc.send();
+	} else if(type == "json") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.overrideMimeType("application/json");
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(JSON.parse(doc.response));
+		};
+		doc.send();		
 	} else if(type == "ArrayBuffer") {
 		var doc = new XMLHttpRequest();
 		doc.open("GET",path,true);
@@ -290,18 +420,115 @@ function loadFile(type,path,callback) {
 		};
 		doc.send();
 	} else if(type == "audio") {
-		var doc = new XMLHttpRequest();
-		doc.open("GET",path,true);
-		doc.responseType = "arraybuffer";
-		doc.overrideMimeType('text/plain; charset=x-user-defined');
-		doc.onreadystatechange = function() {
-			if (doc.readyState==4 && (!doc.status || doc.status==200))
-				audio.decodeAudioData(doc.response,done);
-		};
-		doc.send();
+		if(!audio)
+			done();
+		else {
+			var doc = new XMLHttpRequest();
+			doc.open("GET",path,true);
+			doc.responseType = "arraybuffer";
+			doc.overrideMimeType('text/plain; charset=x-user-defined');
+			doc.onreadystatechange = function() {
+				if (doc.readyState==4 && (!doc.status || doc.status==200))
+					audio.decodeAudioData(doc.response,done);
+			};
+			doc.send();
+		}
 	} else
 		console.log("unsupported type",type,path);
 }
+
+// Data Views are not widely supported in HTML5 browsers yet, so we roll our own and we're happy with it
+function BinaryDataReader(arrayBuffer) {
+	assert(this !== window);
+	this.array = arrayBuffer;
+	this.buffer = new Uint8Array(arrayBuffer);
+	this.len = arrayBuffer.byteLength;
+	this.ofs = 0;
+	if(!BinaryDataReader.inited) {
+		BinaryDataReader.pow2 = new Float32Array(24); // massive speedup if precomputed
+		BinaryDataReader.one_over_pow2 = new Float32Array(24);
+		for(var i=0; i<BinaryDataReader.pow2.length; i++) {
+			BinaryDataReader.pow2[i] = Math.pow(2,i);
+			BinaryDataReader.one_over_pow2[i] = 1 / BinaryDataReader.pow2[i];
+		}
+		BinaryDataReader.float1 = new Float32Array(1);
+		BinaryDataReader.inited = true;
+	}
+};
+BinaryDataReader.prototype = {
+	seek: function(ofs) {
+		assert(ofs <= this.len);
+		this.ofs = ofs;
+		return this;
+	},
+	skip: function(len) {
+		assert(this.ofs + len <= this.len);
+		this.ofs += len;
+		return this;
+	},
+	_read: function(Type,numElements) {
+		numElements = numElements || 1;
+		assert(this.ofs + Type.BYTES_PER_ELEMENT*numElements <= this.len);
+		if(numElements == 1) {
+			var ret = 0;
+			for(var i=0; i<Type.BYTES_PER_ELEMENT; i++)
+				ret |= this.buffer[this.ofs++] << (i*8);
+			return ret;
+		}
+		var raw = new Type(numElements),
+			stop = this.ofs + raw.byteLength;
+		raw.set(this.buffer.subarray(this.ofs,stop));
+		this.ofs = stop;
+		return raw;
+	},
+	uint8: function(len) { return this._read(Uint8Array,len); },
+	uint16: function(len) { return this._read(Uint16Array,len); },
+	uint32: function(len) { return this._read(Uint32Array,len); },
+	strfixed: function(len) {
+		assert(this.ofs + len <= this.len);
+		var s = "";
+		for(var i=0; i<len; i++) {
+			var b = this.buffer[this.ofs++];
+			if(b) s += String.fromCharCode(b);
+		}
+		return s;
+	},
+	str64: function() { return this.strfixed(64); },
+	strz: function() {
+		var s = "", b;
+		while((b = this.buffer[this.ofs++]))
+			s += String.fromCharCode(b);
+		return s;
+	},
+	float32: function(len) {
+		// do our own unpacking (http://www.terrybutler.co.uk/downloads/web/webgl-md2.htm adapted, speeded up 1000x)
+		len = len || 1;
+		var as_float = (len > 1? new Float32Array(len): BinaryDataReader.float1);
+		for(var j=0; j<len; j++) {
+			var value = this.uint32();
+			var sign = (value >> 31) & 0x1;
+			var nonZero = false;
+			var mantissa = 0;
+			var exponent = -127;
+			// Mantissa
+			for(var i = 22; i > -1; i--)
+				if((value >> i & 0x1) == 1) {
+					mantissa += BinaryDataReader.one_over_pow2[23-i];
+					nonZero = true;
+				}	
+			if(nonZero) mantissa += 1;		
+			// Exponent
+			for(var i = 30; i > 22; i--)
+				if((value >> i & 0x1) == 1)
+					exponent += BinaryDataReader.pow2[i-23];
+			var total = Math.pow(2, exponent) * mantissa;		
+			if(sign) total = -total;		
+			as_float[j] = total;
+		}
+		if(len>1) return as_float;
+		return as_float[0];
+	},
+};
 
 function randomSound(list) {
 	if(list.length && audio)
@@ -309,6 +536,7 @@ function randomSound(list) {
 }
 
 function playSound(clip,volume) {
+	if(!clip) return;
 	var source = audio.createBufferSource();
 	source.buffer = clip;
 	if(volume) {
@@ -321,8 +549,11 @@ function playSound(clip,volume) {
 	source.noteOn(0);
 }
 
-function schedule(func) {
-	schedule._items.push(func);
+function schedule(func,last) { // by default, most recently scheduled are run first
+	if(last)
+		schedule._items.unshift(func);
+	else
+		schedule._items.push(func);
 }
 
 schedule._items = [];
@@ -330,11 +561,52 @@ schedule._items = [];
 schedule.run = function() {
 	for(var items = schedule._items; items.length; items = schedule._items) {
 		schedule._items = [];
-		for(var i in items)
+		for(var i=items.length; i-->0; ) // most recently pushed first
 			items[i]();
 	}
 };
 
+function inheritsFrom(obj,proto) {
+	while(true) {
+		obj = obj.__proto__ || null;
+		if(!obj)
+			return false;
+		if(obj === proto)
+			return true;
+	}
+}
+
+function WebWorker(scriptFilename) {
+	// thoughts on how to debug web workers welcome; we can't just import them because we don't have namespaces
+	this.scriptFilename = scriptFilename;
+	this.worker = null;
+	this.inflight = [];
+}
+WebWorker.prototype = {
+	send: function(data,byRef,callback,ctx) {
+		if(callback)
+			assert(ctx);
+		if(!this.worker) {
+			var self = this, path = this.scriptFilename;
+			this.worker = new Worker(path);
+			this.worker.onmessage = function() { self.receive.apply(self,arguments); };
+		}
+		if(!byRef)
+			this.worker.postMessage(JSON.stringify(data));
+		else
+			this.worker.postMessage(data,[data]);
+		this.inflight.push([callback,ctx]);
+	},
+	receive: function(evt) {
+		var	callback = this.inflight.shift(),
+			ctx = callback[1], callback = callback[0],
+			data = evt.data;
+		if(data && data.error)
+			window.onerror(data.error);
+		else if(callback)
+			callback.call(ctx,evt.data);
+	},
+};
 
 window.requestAnimFrame = 
 	window.requestAnimationFrame ||
@@ -343,24 +615,23 @@ window.requestAnimFrame =
 	window.oRequestAnimationFrame ||
 	window.msRequestAnimationFrame ||
 	function(callback) {
-		window.setTimeout(callback, 1/60);
+		window.setTimeout(callback,1000/60);
 	};
 
 </script>
+<style type="text/css">
+body { border:0px;margin:0px;padding:0px; background-color: black; color: white; }
+.error { background: yellow; color: red; margin: 2px; padding: 2px; }
+#main-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
+</style>
 <body onload="init()">
+<div id="errWebWorkers" class="error" style="display: none;">Sorry, your browser does not support HTML5 web workers</div>
+<div id="errWebGL" class="error" style="display: none;">Sorry, could not initialize webGL</div>
 <noscript>
-Sorry, you don't have Javascript enabled :(
+<div class="error">Sorry, you don't have Javascript enabled :(</div>
 </noscript>
-<div id="upload">
-	<form action="/upload" enctype="multipart/form-data" method="post">
-		&nbsp;file&nbsp;<input type="file" name="file" size="40"/>
-		&nbsp;path&nbsp;<input type="text" name="folder" size="10" value="/"/>
-		&nbsp;message&nbsp;<input type="text" name="message" size="10" value="(edited online)"/>
-		<input type="submit" value="upload!"/>
-	</form>
-</div>
-<canvas id="game-canvas">
-Sorry, you don't have webGL enabled :(
+<canvas id="main-canvas">
+<div class="error">Sorry, you don't have webGL enabled :(</div>
 </canvas>
 </body>
 </html>
