@@ -44,7 +44,6 @@ function DemoGridTerrain() {
 		fogDensity: 0.02,
 		pMatrix: null,
 		mvMatrix: null,
-		invMvMatrix: null,
 		nMatrix: null,
 	};
 	this.hadMouseDown = false;
@@ -185,7 +184,7 @@ DemoGridTerrain.prototype = {
 	},
 	layout: function() {
 		this.menu.performLayout();
-		this.menu.ctrl.setPosVisible([canvas.width,0]); // top-right
+		this.menu.ctrl.setPosVisible([canvas.width,canvas.height]); // bottom-right
 		UIViewport.prototype.layout.call(this);
 	},
 	onMouseWheel: function(evt,amount) {
