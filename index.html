@@ -205,16 +205,20 @@ function init() {
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
 			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
-			window.focus();
-			window.requestAnimFrame(loop);
-			game();
+			// phase 2: load the game files that depend up barebones.js being loaded
+			loaded = Waiter(function() {
+					window.focus();
+					window.requestAnimFrame(loop);
+					game();
+			});
+			// these demo files you don't need to load unless you use them:
+			loadFile("javascript","demo_g3d.js",loaded());
+			loadFile("javascript","demo_grid_terrain.js",loaded());
 		});
+	// phase 1: load the barebones.js framework
 	loadFile("javascript","glutil.js",loaded());
 	loadFile("javascript","ui.js",loaded());
 	loadFile("javascript","g3d.js",loaded()); // you don't need to load this if you're not openning G3D files
-	// these demo files you don't need to load unless you use them:
-	loadFile("javascript","demo_g3d.js",loaded());
-	loadFile("javascript","demo_grid_terrain.js",loaded());
 }
 
 function isOnGithubPages() {
