@@ -42,17 +42,39 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. -->
 var gl, canvas, audio, messages, keys = {}, mousePos = null;
 
 function game() { //### you replace this!  This is called when the framework has finished loading
-	addMessage(10,"barebones.js says: ","hello world");
-	game.g3d_test = new G3D("data/test.g3d");
+	game.menu = new UIWindow(false,new UIPanel([
+			new UILabel("demos"),
+			new UIButton("g3d spider",function() { setDemo(new DemoG3D()); }),
+			new UIButton("grid terrain",function() { setDemo(new DemoGridTerrain()); }),
+		],UILayoutRows));
+	game.menu.ctrl.allowClickThru = false;
+	// intercept layouts so we can ensure we are always bottom-left of the screen
+	var layout = game.menu.performLayout;
+	game.menu.performLayout = function() {
+		layout.call(game.menu);
+		game.menu.ctrl.setPosVisible([0,canvas.height]);
+	};
+	game.menu.layout();
+	game.menu.show();
+	// default demo
+	setDemo(new DemoGridTerrain());
 }
 
-function render() { //### you replace or remove this!
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-	var zoom = 3,
-		pMatrix = createPerspective(60.0,canvas.offsetWidth/canvas.offsetHeight,0.1,zoom*2),
-		mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
-		nMatrix = mat4_mat3(mat4_inverse(mat4_transpose(mvMatrix)));
-	game.g3d_test.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+function setDemo(demo) { //### just test code
+	if(setDemo.demo)
+		setDemo.demo.hide(); // will get garbage-collected
+	setDemo.demo = demo;
+	if(demo) {
+		demo.layout();
+		demo.show();
+	}
+}
+
+function onResize(evt) { //### just test code so our demos can resize appropriately
+	if(game.menu)
+		game.menu.layout();
+	if(setDemo.demo && setDemo.demo.onResize)
+		setDemo.demo.onResize(evt);
 }
 
 function init() {
@@ -94,8 +116,6 @@ function init() {
 		onMouseDown = function(evt) {
 			evt.cancelBubble = true;
 			isMouseDown = true;
-			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
-				return false;
 			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
 				window.onMouseDown(evt,keys);
 			schedule.run();
@@ -192,6 +212,9 @@ function init() {
 	loadFile("javascript","glutil.js",loaded());
 	loadFile("javascript","ui.js",loaded());
 	loadFile("javascript","g3d.js",loaded()); // you don't need to load this if you're not openning G3D files
+	// these demo files you don't need to load unless you use them:
+	loadFile("javascript","demo_g3d.js",loaded());
+	loadFile("javascript","demo_grid_terrain.js",loaded());
 }
 
 function isOnGithubPages() {
@@ -205,9 +228,9 @@ function isLocalFile() {
 function addMessage(secs,from,text,tag) {
 	var 	f = from? new UILabel(from): null,
 		message = new UIPanel(f?[f,new UILabel(text)]:[new UILabel(text)]);
-	message.bgColour = [0.2,0.2,0.2,1];
+	message.bgColour = UI.defaults.messages.text;
 	message.tag = tag;
-	if(f) f.fgColour = [0.8,1,0.8,1];
+	if(f) f.fgColour = UI.defaults.messages.from;
 	if(!messages) {
 		messages = new UIWindow(false,new UIPanel([],UILayoutRows),"messages");
 		messages.show();
@@ -274,6 +297,14 @@ function loop() {
 		console.log("ERROR:",e);
 		console.log(e.stack||"<no stack>");
 		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+	}
+}
+
+function printStack(msg) {
+	try {
+		throw new Error();
+	} catch(e) {
+		console.log(msg||"",e.stack||"<no stack>");
 	}
 }
 

@@ -459,11 +459,13 @@ UIWindow.prototype = {
 			if(this.modal) {
 				UI.windows.push(this);
 			} else {
-				for(var i=UI.windows.length-1; i>=0; i--)
-					if(!UI.windows[i].modal) {
-						UI.windows.splice(i+1,0,this);
-						return;
-					}
+				if(this._z != -1) { //### TODO support various _z indices
+					for(var i=UI.windows.length-1; i>=0; i--)
+						if(!UI.windows[i].modal) {
+							UI.windows.splice(i+1,0,this);
+							return;
+						}
+				}
 				UI.windows.unshift(this);
 			}
 		} else if(this.hideScheduled) {
@@ -480,8 +482,9 @@ UIWindow.prototype = {
 		this.hideScheduled = true;
 		schedule(function() { self._changeVisibility(); });
 	},
-	show: function() {
+	show: function(z) {
 		var self = this;
+		this._z = z|0;
 		this.showScheduled = true;
 		this.hideScheduled = false;
 		schedule(function() { self._changeVisibility(); });
@@ -631,6 +634,10 @@ var UI = {
 				bgColour: [0.3,0.3,0.3,1.0],
 				fgColour: [0.5,0.5,0.5,1.0],
 			},
+		},
+		messages:{
+			from: [0.8,1,0.8,1],
+			text: [0.2,0.2,0.2,1],
 		},
 		bgColour: [0.3,0.2,0.2,0.5],
 		fgColour: [1.0,0.0,0.5,1.0],
@@ -910,14 +917,10 @@ UIButton.prototype = {
 	},
 	canFocus: true,
 	setText: function(text) {
-		var undefined;
-		for(var child in this.children) {
-			child = this.children[child];
-			if(child && child.text !== undefined) {
-				child.setText(text);
-				return;
-			}
-		};
+		this.label.setText(text);
+	},
+	getText: function() {
+		return this.label.text;
 	},
 };
 
