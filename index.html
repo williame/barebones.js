@@ -222,7 +222,7 @@ function init() {
 }
 
 function isOnGithubPages() {
-	return window.location.host.indexOf(".github.") > 0;
+	return window.location.hostname.indexOf(".github.") > 0;
 }
 
 function isLocalFile() {
@@ -671,8 +671,8 @@ body { border:0px;margin:0px;padding:0px; background-color: black; color: white;
 <script type="text/javascript">
 if(isOnGithubPages()) {
 	var ghProject = "https://github.com/"+
-		window.location.host.substr(0,window.location.host.length-window.location.host.indexOf(".github."))+"/"+
-		window.location.path.substr(0,window.location.path.split("/")[0]);
+		window.location.host.substr(0,window.location.hostname.length-window.location.hostname.indexOf(".github."))+"/"+
+		window.location.path.substr(0,window.location.pathname.split("/")[1]);
 	document.write('<a href="'+ghProject+'" style="position: absolute; top: 0; right: 0; border: 0;">'+
 		'<img src="https://s3.amazonaws.com/github/ribbons/forkme_right_red_aa0000.png" alt="Fork me on GitHub"></a>');
 }
