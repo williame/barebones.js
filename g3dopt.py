@@ -136,10 +136,10 @@ if __name__=="__main__":
     if len(sys.argv) != 3:
         sys.exit("usage: python g3dopt.py [src] [dest]")
     src = sys.argv[1]
-    g3d = G3D(src,file(src,"r").read())
+    g3d = G3D(src,file(src,"rb").read())
     g3d.desc()
     g3d.auto_join_frames()
     g3d.desc()
     dest = sys.argv[2]
     print "saving",dest,"..."
-    g3d.write(file(dest,"w"))
+    g3d.write(file(dest,"wb"))
