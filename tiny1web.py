@@ -81,11 +81,11 @@ class MainHandler(BaseHandler):
             return
         # get the file to serve
         if not commit and not bare:
-        	try:
-        		with open(path,"r") as f:
-        			body = f.read()
-		except IOError as e:
-			print e
+            try:
+                with open(path,"rb") as f:
+                    body = f.read()
+            except IOError as e:
+                print "An error occurred:",path,e
         if not body:
             try:
                 body = subprocess.check_output(["git","show","%s:%s"%(commit or options.branch,path)])
@@ -94,16 +94,18 @@ class MainHandler(BaseHandler):
         # and set its content-type
         if path.endswith(".js"):
             content_type = "text/javascript"
+        elif path.endswith(".png"):
+            content_type = "image/png"
         else:
-            content_type = subprocess.Popen(["file","-i","-b","-"],stdout=subprocess.PIPE,
-                stdin=subprocess.PIPE, stderr=subprocess.STDOUT).communicate(input=body)[0].split(";")[0]
+            content_type = subprocess.Popen(["file","--mime-type","-b","-"],stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE, stderr=subprocess.STDOUT).communicate(input=body)[0].strip().split(";")[0]
         self.set_header("Content-Type",content_type)
         if commit:
             self.set_header("ETag",'"%s"'%commit)
             self.set_header("Expires","Fri, 10 Oct 2030 14:19:41 GMT") # counts as forever
             self.set_header("Cache-Control","315360000")
         # serve it
-        self.write(body)
+        self.finish(body)
         
 class ZipBallHandler(BaseHandler):
     def get(self):

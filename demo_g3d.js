@@ -41,10 +41,11 @@ DemoG3D.prototype = {
 		var	w = this.width(), h = this.height(),
 			aspect = w/h,
 			zoom = Math.max(w,h)/Math.min(w,h) * 3,
-			pMatrix = createPerspective(60.0,aspect,0.1,zoom*2),
-			mvMatrix = createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
-			nMatrix = mat4_mat3(mat4_inverse(mat4_transpose(mvMatrix)));
-		this.g3d.draw((now()/1000)%1,pMatrix,mvMatrix,nMatrix);
+			uniforms = {
+				pMatrix: createPerspective(60.0,aspect,0.1,zoom*2),
+				mvMatrix: createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
+			};
+		this.g3d.draw(uniforms,(now()/1000)%1);
 	},
 	show: function() {
 		this.onResize();

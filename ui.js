@@ -30,7 +30,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 function UIFont(xml,texture) {
-	assert(this !== window);
+	assert(this instanceof UIFont);
 	var	get = function (node,attr) { return parseInt(node.getAttribute(attr)); },
 		common = xml.getElementsByTagName("common")[0];
 	this.lineHeight = get(common,"lineHeight");
@@ -51,6 +51,7 @@ function UIFont(xml,texture) {
 			xadv: get(ch,"xadvance"),
 		};
 	}
+	this.em = (this.chars[' '] || {}).w || this.lineHeight;
 	this.kernings = [];
 	var kernings = xml.getElementsByTagName("kerning");
 	for(var i=0; i<kernings.length; i++) {
@@ -106,7 +107,7 @@ UIFont.prototype = {
 };
 
 function UIContext() {
-	assert(this!==window);
+	assert(this instanceof UIContext);
 	this.width = this.height = 0;
 	this.buffers = [];
 	this.data = [];
@@ -208,8 +209,8 @@ UIContext.prototype = {
 	drawText: function(font,colour,x,y,text) { return font? font.drawText(this,colour,x,y,text): 0; },
 	drawTextOutlined: function(font,fgColour,outlineColour,x,y,text) {
 		this.drawText(font,outlineColour,x,y,text);
-		this.drawText(font,outlineColour,x,y,text);
-		this.drawText(font,outlineColour,x+2,y+2,text);
+		this.drawText(font,outlineColour,x,y+2,text);
+		this.drawText(font,outlineColour,x+2,y,text);
 		this.drawText(font,outlineColour,x+2,y+2,text);
 		return this.drawText(font,fgColour,x+1,y+1,text)+1;
 	},
@@ -390,7 +391,7 @@ UIContext.prototype = {
 };
 
 function UIWindow(modal,ctrl,tag) {
-	assert(this !== window);
+	assert(this instanceof UIWindow);
 	this.mvp = null;
 	this.isDirty = true;
 	this.needsLayout = true;
@@ -498,20 +499,28 @@ UIWindow.prototype = {
 				this.onDismiss();
 		}
 	},
-	getFont: function() { return "default" in UI.fonts? UI.fonts["default"]: null; },
+	getFont: function() { return UI.fonts["default"] || null; },
 	getBgColour: function() { return UI.defaults.bgColour; },
 	getFgColour: function() { return UI.defaults.fgColour; },
 	layout: function() { this.needsLayout = true; }, // schedule the control to be laid out next time its drawn
 	performLayout: function() { // perform the layout immediately
 		this.needsLayout = false;
 		if(this.ctrl)
-			this.ctrl.layout();
+			this.ctrl.performLayout();
+		this.isDirty = true;
 	},
 	window: function() { return this; },
 	onMouseDown: function(evt,keys) { return this.ctrl && this.ctrl.onMouseDown? this.ctrl.onMouseDown(evt,keys): false; },
 	onMouseMove: function(evt,keys,isMouseDown) { return this.ctrl && this.ctrl.onMouseMove? this.ctrl.onMouseMove(evt,keys,isMouseDown): false; },
 	onMouseUp: function(evt,keys) { return this.ctrl && this.ctrl.onMouseUp? this.ctrl.onMouseUp(evt,keys): false; },
-	onKeyDown: function(evt,keys) { return this.ctrl && this.ctrl.onKeyDown? this.ctrl.onKeyDown(evt,keys): false; },
+	onKeyDown: function(evt,keys) { 
+		var consume = this.ctrl && this.ctrl.onKeyDown? this.ctrl.onKeyDown(evt,keys): false;
+		if(!consume && this.modal && evt.which == 27) { // escape key dismisses a modal dialog
+			this.dismiss();
+			consume = true;
+		}
+		return consume;
+	},
 	onKeyUp: function(evt,keys) { return this.ctrl && this.ctrl.onKeyUp? this.ctrl.onKeyUp(evt,keys): false; },
 	onMouseWheel: function(evt,amount) { return this.ctrl && this.ctrl.onMouseWheel? this.ctrl.onMouseWheel(evt,amount): false; },
 	onContextMenu: function(evt,keys) {
@@ -528,7 +537,7 @@ UIWindow.prototype = {
 		else {
 			this.children = [ctrl];
 			ctrl.setParent(this);
-			ctrl.layout();
+			ctrl.performLayout();
 		}
 	},
 };
@@ -641,6 +650,7 @@ var UI = {
 		},
 		bgColour: [0.3,0.2,0.2,0.5],
 		fgColour: [1.0,0.0,0.5,1.0],
+		dividerColour: [0.9,0.9,0.9,0.5],
 		lineHeight: 13,
 		spacerHeight: 3,
 	},
@@ -648,7 +658,7 @@ var UI = {
 UI.loadFont("default","bitstream_vera_sans");
 
 function UIComponent() {
-	assert(this !== window);
+	assert(this instanceof UIComponent);
 	this.children = [];
 	this.isDirty = true;
 	this.parent = null;
@@ -671,12 +681,13 @@ UIComponent.prototype = {
 		this.x2 += x; this.y2 += y;
 		this.dirty();
 	},
-	setPosVisible: function(pos) {
+	setPosVisible: function(pos,rect) {
 		if(this.window().needsLayout)
 			this.window().performLayout();
+		rect = rect || [0,0,canvas.width,canvas.height];
 		this.setPos([
-			Math.max(0,Math.min(pos[0],canvas.width-this.width())),
-			Math.max(0,Math.min(pos[1],canvas.height-this.height()))]);
+			Math.max(rect[0],Math.min(pos[0],rect[2]-this.width())),
+			Math.max(rect[1],Math.min(pos[1],rect[3]-this.height()))]);
 	},
 	setSize: function(size) {
 		if(size == this.size()) return;
@@ -692,6 +703,7 @@ UIComponent.prototype = {
 	width: function() { return this.x2 - this.x1; },
 	height: function() { return this.y2 - this.y1; },
 	size: function() { return [this.width(),this.height()]; },
+	rect: function() { return [this.x1,this.y1,this.x2,this.y2]; },
 	preferredSize: function() { return this.size(); },
 	font: null,
 	getFont: function() { return this.font || this.parent.getFont(); },
@@ -700,13 +712,17 @@ UIComponent.prototype = {
 	bgColour: null,
 	getBgColour: function() { return this.bgColour || this.parent.getBgColour(); },
 	layout: function() {
+		if(this.parent)
+			this.parent.layout();
+	},
+	performLayout: function() {
 		if(this.layoutManager) {
 			this.layoutManager.layout(this);
 		} else {
 			for(var child in this.children) {
 				child = this.children[child];
 				if(child)
-					child.layout();
+					child.performLayout();
 			}
 			this.setSize(this.preferredSize());
 		}
@@ -729,29 +745,39 @@ UIComponent.prototype = {
 	addChild: function(child) {
 		this.children.push(child);
 		child.setParent(this);
-		this.window().layout();
+		this.layout();
 	},
 	replaceChild: function(from,to) {
 		var i = this.children.indexOf(from);
 		if(i == -1)
 			this.children.push(to);
-		else
+		else if(to) {
 			this.children[i] = to;
-		to.setParent(this);
-		this.window().layout();
+			to.setParent(this);
+		} else
+			this.children.splice(i,1);
+		this.layout();
+	},
+	removeChild: function(child) {
+		this.replaceChild(child);
 	},
 	destroy: function() {
 		if(!this.parent) return;
 		var idx = this.parent.children.indexOf(this);
 		if(idx != -1) {
 			this.parent.children.splice(idx,1);
-			this.parent.window().layout();
+			this.parent.layout();
 		}
 	},
-	window: function() { return this.parent.window(); },
+	window: function() { return this.parent? this.parent.window(): null; },
 	isMouseInRect: function(evt) {
-		var	x = evt.clientX-evt.target.offsetLeft,
-			y = evt.clientY-evt.target.offsetTop;
+		return this._isMouseInRect(evt.clientX-evt.target.offsetLeft,evt.clientY-evt.target.offsetTop);
+	},
+	isMouseOver: function(pos) {
+		pos = pos || mousePos;
+		return pos? this._isMouseInRect(pos[0],pos[1]): false;
+	},
+	_isMouseInRect: function(x,y) {
 		return this.visible && 
 			x>=this.x1 && x<this.x2 &&
 			y>=this.y1 && y<this.y2;
@@ -790,7 +816,7 @@ var UILayoutFlow = {
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
 			if(!child || !child.visible) continue;
-			child.layout();
+			child.performLayout();
 			child.setSize(child.preferredSize());
 			h = Math.max(h,child.height());
 		}
@@ -817,7 +843,7 @@ var UILayoutRows = {
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
 			if(!child || !child.visible) continue;
-			child.layout();
+			child.performLayout();
 			child.setSize(child.preferredSize());
 			child.setPos([ctrl.x1+hpadding,ctrl.y1+h]);
 			w = Math.max(w,child.width());
@@ -867,7 +893,7 @@ UILabel.prototype = {
 	},
 	setText: function(text) {
 		this.text = text;
-		this.window().layout();
+		this.layout();
 	},
 	draw: function(ctx) {
 		var font = this.getFont();
@@ -880,14 +906,17 @@ UILabel.prototype = {
 
 function UICtrlIcon(name) {
 	UIComponent.call(this);
-	this.name = name;
-	this.idx = this.mapping.indexOf(this.name);
-	assert(this.idx >= 0,"unsupported mapping: "+this.name);
+	this.setIcon(name);
 }		
 UICtrlIcon.prototype = {
 	__proto__: UIComponent.prototype,
-	mapping: ["combo","submenu","checked","unchecked"],
+	_mapping: ["combo","submenu","checked","unchecked"],
 	preferredSize: function() { return [UI.defaults.lineHeight,UI.defaults.lineHeight]; },
+	setIcon: function(name) {
+		this.iconName = name;
+		this.idx = this._mapping.indexOf(name);
+		assert(this.idx >= 0,"unsupported mapping: "+name);
+	},
 	draw: function(ctx) {
 		if(!this.tex) return;
 		var numIcons = this.tex.height / this.tex.width;
@@ -901,7 +930,6 @@ UICtrlIcon.prototype = {
 loadFile("image","data/ctrl_icons.png",function(tex) { UICtrlIcon.prototype.tex = tex; });
 
 function UIButton(text,onClick,tag,leftIcon,rightIcon) {
-	assert(this != window);
 	this.label = new UILabel(text,UI.defaults.btn.txtOutline);
 	UIPanel.call(this,[leftIcon,this.label,rightIcon]);
 	this.onClicked = onClick;
@@ -921,6 +949,27 @@ UIButton.prototype = {
 	},
 	getText: function() {
 		return this.label.text;
+	},
+};
+
+function UICheckbox(text,onClick,tag,checked) {
+	this._checked = checked;
+	this.box = new UICtrlIcon(checked?"checked":"unchecked");
+	var	self = this,
+		clicked = function() {
+			self.setChecked(!self.isChecked());
+			onClick.call(this,arguments);
+			return true;
+		};
+	UIButton.call(this,text,clicked,tag,this.box);
+}
+UICheckbox.prototype = {
+	__proto__: UIButton.prototype,
+	isChecked: function() { return this._checked; },
+	setChecked: function(checked) {
+		this._checked = !!checked;
+		this.box.setIcon(checked?"checked":"unchecked");
+		this.layout();
 	},
 };
 
@@ -979,13 +1028,14 @@ function UIComboBox(options,idx,onSelect,tag,title) {
 	this.idx = idx;
 	this.onSelect = onSelect;
 	this.title = title;
+	this.highlight = -1;
 	title = title || options[idx].name || options[idx];
 	UIButton.call(this,title,this.onClicked,tag,null,new UICtrlIcon("combo"));
 	this.label.preferredSize = function() {
 		var	ret = [0,0],
 			font = this.getFont();
 		if(!font) return ret;
-		if(title)
+		if(this.title)
 			ret = font.measureText(title);
 		else
 			for(var idx in options) {
@@ -1023,6 +1073,110 @@ UIComboBox.prototype = {
 		var label = this.title || this.options[idx].name || ""+this.options[idx];
 		this.setText(label);		
 	},
+};
+
+function UIProperties(keys,title) {
+	assert(this instanceof UIProperties);
+	UIComponent.call(this);
+	this.keys = keys;
+	this.data = null;
+	this.title = title;
+	this.keyWidth = this.valueWidth = 0;
+}
+UIProperties.prototype = {
+	__proto__: UIComponent.prototype,
+	_empty: [0,0],
+	setData: function(data) {
+		this.data = data;
+		this.layout();
+	},
+	_getValue: function(key) {
+		return this.data?
+			""+(key.getValue?
+				key.getValue(this.data):
+				this.data[key.key||key.label]):
+			"";
+	},
+	performLayout: function() {
+		var font = this.getFont();
+		if(!font)
+			return;
+		var	hpadding = UI.defaults.hpadding,
+			vpadding = UI.defaults.vpadding,
+			ihpadding = UI.defaults.ihpadding + font.em,
+			ivpadding = UI.defaults.ivpadding,
+			k = this.keyWidth, v = 0;
+		for(var key in this.keys) {
+			key = this.keys[key];
+			if(!this.keyWidth)
+				k = Math.max(k,font.measureText(key.label)[0]);
+			v = Math.max(v,font.measureText(this._getValue(key))[0]);
+		}
+		var	w = Math.max(font.measureText(this.title)[0],k+ihpadding+v) + hpadding*2,
+			h = font.lineHeight;
+		h += (h+ivpadding)*this.keys.length + vpadding*2;
+		this.keyWidth = k;
+		this.valueWidth = v;
+		this.setSize([w,h]);
+	},
+	draw: function(ctx) {
+		var font = this.getFont();
+		if(!font)
+			return;
+		var	hpadding = UI.defaults.hpadding,
+			vpadding = UI.defaults.vpadding,
+			ihpadding = UI.defaults.ihpadding + font.em,
+			ivpadding = UI.defaults.ivpadding,
+			margin = Math.min(hpadding,vpadding),
+			bgColour = this.getBgColour(), fgColour = this.getFgColour(),
+			v,
+			x = this.x1+hpadding, y = this.y1+vpadding;
+		ctx.fillRoundedRect(bgColour,margin,
+			this.x1+margin,this.y1+margin,this.x2-margin,this.y2-margin);
+		var tx = x+this.keyWidth+ihpadding*0.5, ty = y+font.lineHeight+ivpadding*0.5;
+		ctx.drawLine(UI.defaults.dividerColour,this.x1+margin,ty,this.x2-margin,ty);
+		ctx.drawLine(UI.defaults.dividerColour,tx,ty,tx,this.y2-margin);
+		for(var i=0; i<this.keys.length; i+=2) {
+			ty = y + (i+1)*(ivpadding + font.lineHeight);
+			ctx.fillRect([0.9,0.9,0.9,0.3],this.x1+margin,ty,this.x2-margin,ty+font.lineHeight);
+		}
+		ctx.drawText(font,fgColour,x,y,this.title);
+		for(var key in this.keys) {
+			key = this.keys[key];
+			y += ivpadding + font.lineHeight;
+			ctx.drawText(font,fgColour,x,y,key.label);
+			v = this._getValue(key);
+			ctx.drawText(font,fgColour,x+ihpadding+this.keyWidth,y,v);
+		}
+	},
+};
+
+function PerformanceCounter(slots) {
+	assert(this instanceof PerformanceCounter);
+	this.data = new Array(slots || 10);
+	this.idx = 0;
+}
+PerformanceCounter.prototype = {
+	now: Date.now,
+	tick: function() {
+		if(this.idx >= this.data.length)
+			this.idx = 0;
+		this.data[this.idx++] = this.now();
+	},
+	tps: function(secs) {
+		secs = secs || 3;
+		var	min, count = 0,
+			now = this.now(),
+			since = now - secs*1000;
+		for(var t in this.data) {
+			t = this.data[t];
+			if(t >= since)
+				min = count++? Math.min(min,t): t;
+		}
+		if(count && min < now)
+			return count / (now-min) * 1000;
+		return -1;
+	},		
 };
 
 function Perf() {

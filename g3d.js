@@ -41,23 +41,40 @@ function G3D(filename,readyCallback) {
 		this.readyCallbacks.push(readyCallback);
 	this.filename = filename;
 	this.meshes = [];
+	this.meshesLerp = [];
+	this.meshesSingle = [];
 	this.textureFilenames = [];
 	this.ready = false;
 	this.showNormals = false;
 	this.boundingSphere = [0,0,0,0];
 	loadFile("ArrayBuffer",filename,function(arrayBuffer) { self._fileLoaded(arrayBuffer); });
 }
+G3D.loaded = {};
+G3D.load = function(filename,readyCallback) {
+	var g3d = G3D.loaded[filename] || null;
+	if(g3d) {
+		if(readyCallback) {
+			if(!g3d.ready)
+				g3d.readyCallbacks.push(readyCallback);
+			else
+				setTimeout(function() { readyCallback(g3d); },0);
+		}
+	} else {
+		G3D.loaded[filename] = new G3D(filename,readyCallback);
+	}
+	return g3d;
+}
 G3D.prototype = {
 	type: "model.g3d",
 	_done: function() {
 		for(var callback in this.readyCallbacks)
 			this.readyCallbacks[callback](this);
+		this.readyCallbacks = [];
 	},
 	_fileLoaded: function(arrayBuffer) {
 		var	self = this,
-			done = function() { self._done(); },
+			done = Callback(this,this._done),
 			reader = new BinaryDataReader(arrayBuffer);
-		console.log("loaded G3D",this.filename,arrayBuffer.byteLength,"bytes");
 		if(reader.uint32()>>24 != 4) throw "unsupported G3D version";
 		var meshCount = reader.uint16();
 		if(!meshCount) throw "has no meshes";
@@ -70,12 +87,18 @@ G3D.prototype = {
 				this.bounds[1][c] = Math.max(mesh.bounds[1][c],this.bounds[1][c]);
 			}
 			this.meshes.push(mesh);
+			this[mesh.frameCount==1? "meshesSingle":"meshesLerp"].push(mesh);
 			// work out what textures we have to load
 			if(mesh.textureFilename) {
 				if(!this.textureFilenames[mesh.textureFilename])
 					this.textureFilenames[mesh.textureFilename] = [];
 				this.textureFilenames[mesh.textureFilename].push(mesh);
 			}
+		}
+		if(this.meshesLerp.length) {
+			// if some meshes are multi-frame, don't bother with a program switch
+			this.meshesLerp.push.apply(this.meshesLerp,this.meshesSingle);
+			this.meshesSingle = [];
 		}
 		this.boundingSphere = vec3_add(this.bounds[0],vec3_scale(vec3_sub(this.bounds[1],this.bounds[0]),0.5));
 		this.boundingSphere.push(vec3_length(vec3_sub(this.bounds[1],this.bounds[0])));
@@ -98,94 +121,20 @@ G3D.prototype = {
 		if(this.ready && this.readyCallbacks)
 			setTimeout(done,0);
 	},
-	draw: function(t,pMatrix,mvMatrix,nMatrix,normals,invert,colour,program) {
+	draw: function(uniforms,t) {
 		if(!this.ready) return;
-		if(!program)
-			program = G3D.program = G3D.program || createProgram(
-				"precision mediump float;\n"+
-				"varying vec3 lighting;\n"+
-				"varying vec2 texel;\n"+
-				"attribute vec3 vertex0, vertex1;\n"+
-				"attribute vec3 normal0, normal1;\n"+
-				"attribute vec2 texCoord;\n"+
-				"uniform float lerp;\n"+
-				"uniform mat4 mvMatrix, pMatrix;\n"+
-				"uniform mat3 nMatrix;\n"+
-				"void main() {\n"+
-				"	texel = vec2(texCoord.x,1.0-texCoord.y);\n"+
-				"	vec3 normal = mix(normal0,normal1,lerp);\n"+
-				"	vec3 vertex = mix(vertex0,vertex1,lerp);\n"+
-				"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-				"	vec3 ambientLight = vec3(0.6,0.6,0.6);\n"+
-				"	vec3 lightColour = vec3(0.8,0.9,0.75);\n"+
-				"	vec3 lightDir = vec3(0.85,0.8,0.75);\n"+
-				"	vec3 transformed = normalize(nMatrix * normal);\n"+
-				"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
-				"	lighting = ambientLight + (lightColour*directional);\n"+
-				"}\n",
-				"precision mediump float;\n"+
-				"varying vec3 lighting;\n"+
-				"varying vec2 texel;\n"+
-				"uniform sampler2D texture;\n"+
-				"uniform vec4 teamColour;\n"+
-				"uniform vec4 colour;\n"+
-				"void main() {\n"+
-				"	vec4 tex = texture2D(texture,texel);\n"+
-				"	if(1.0 != tex.a) {\n"+
-				"		if(0.0 != teamColour.a) {\n"+
-				"			tex.rgb *= tex.a;\n"+
-				"			tex.rgb += teamColour.rgb * teamColour.a * (1.0-tex.a);\n"+
-				"			tex.a = 1.0;\n"+
-				"		} else if(tex.a < 0.5)\n"+
-				"			discard;\n"+
-				"	}\n"+
-				"	gl_FragColor = vec4(tex.rgb*lighting,tex.a)*colour;\n"+
-				"}",
-				["lerp","mvMatrix","pMatrix","nMatrix","teamColour","colour","texture"],
-				["vertex0","vertex1","normal0","normal1","texCoord"]);
-		gl.useProgram(program);
-		gl.uniformMatrix4fv(program.pMatrix,false,pMatrix);
-		gl.uniformMatrix4fv(program.mvMatrix,false,mvMatrix);
-		gl.uniformMatrix3fv(program.nMatrix,false,nMatrix);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.uniform1i(program.texture,0);
-		gl.frontFace(invert?gl.CW:gl.CCW);
-		gl.uniform4fv(program.colour,colour||OPAQUE);
-		t = Math.max(0,Math.min(t,1));
-		var showNormals = normals || this.showNormals || false;
-		for(var i=this.meshes.length; i-->0; ) {
-			var mesh = this.meshes[i];
-			mesh.draw(program,t);
-			showNormals |= mesh.showNormals || false;
-		}
-		if(showNormals && !invert) {
-			if(!G3D.programNormals) {
-				G3D.programNormals = createProgram(
-					"precision mediump float;\n"+
-					"attribute vec3 vertex;\n"+
-					"uniform mat4 mvMatrix, pMatrix;\n"+
-					"void main() {\n"+
-					"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-					"}\n",
-					"precision mediump float;\n"+
-					"uniform vec4 colour;\n"+
-					"void main() {\n"+
-					"	gl_FragColor = colour;\n"+
-					"}",
-					["mvMatrix","pMatrix","colour"],
-					["vertex"]);
-			}
-			gl.useProgram(G3D.programNormals);
-			gl.uniformMatrix4fv(G3D.programNormals.pMatrix,false,pMatrix);
-			gl.uniformMatrix4fv(G3D.programNormals.mvMatrix,false,mvMatrix);
-			gl.uniform4fv(G3D.programNormals.colour,OPAQUE);
-			for(var i=0; i<this.meshes.length; i++) {
-				var mesh = this.meshes[i];
-				if(normals || this.showNormals || mesh.showNormals)
-					mesh.drawNormals(G3D.programNormals,t);
-			}
-		}
-		gl.useProgram(null);
+		if(this.meshesSingle.length)
+			programs.standard(this._drawSingle,uniforms,this);
+		if(this.meshesLerp.length)
+			programs.standardLerp(this._drawLerp,uniforms,this,t||0);
+	},
+	_drawSingle: function(program) {
+		for(var mesh in this.meshesSingle)
+			this.meshesSingle[mesh]._drawSingle(program);
+	},
+	_drawLerp: function(program,t) {
+		for(var mesh in this.meshesLerp)
+			this.meshesLerp[mesh]._drawLerp(program,t);
 	},
 	lineIntersection: function(lineOrigin,lineDir,t) {
 		var	lineLen = vec3_length(lineDir),
@@ -280,9 +229,11 @@ function G3DMesh(g3d,reader) {
 	this.boundingSphere.push(vec3_length(vec3_sub(this.bounds[1],this.bounds[0]))/2);
 	gl.bufferData(gl.ARRAY_BUFFER,this.vnData,gl.STATIC_DRAW);
 	if(this.textures) {
+		this.texData = reader.float32(this.vertexCount*2);
+		for(var i=1; i<this.vertexCount*2; i+=2)
+			this.texData[i] = 1-this.texData[i];
 		this.tVbo = gl.createBuffer();
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
-		this.texData = reader.float32(this.vertexCount*2);
 		gl.bufferData(gl.ARRAY_BUFFER,this.texData,gl.STATIC_DRAW);
 	}
 	this.iVbo = gl.createBuffer();
@@ -324,71 +275,41 @@ function G3DMesh(g3d,reader) {
 	}
 }
 G3DMesh.prototype = {
-	draw: function(program,t) {
-		var frame0 = Math.floor(t*this.frameCount),
-			frame1 = (frame0+1)%this.frameCount,
-			lerp = t*this.frameCount - frame0;
-		gl.uniform1f(program.lerp,lerp);
-		if(this.teamColour)
-			gl.uniform4f(program.teamColour,1,0,0,1);
-		else
-			gl.uniform4f(program.teamColour,0,0,0,0);
+	_drawSingle: function(program) {
 		if(this.twoSided)
 			gl.disable(gl.CULL_FACE);
 		else
 			gl.enable(gl.CULL_FACE);
 		gl.bindTexture(gl.TEXTURE_2D,this.texture);
-		gl.enableVertexAttribArray(program.vertex0);
-		gl.enableVertexAttribArray(program.vertex1);
-		gl.enableVertexAttribArray(program.normal0);
-		gl.enableVertexAttribArray(program.normal1);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
-		gl.vertexAttribPointer(program.normal0,3,gl.FLOAT,false,3*4,(frame0+this.frameCount)*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,(frame1+this.frameCount)*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.vertex0,3,gl.FLOAT,false,3*4,frame0*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4);			
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);			
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,3*4,this.vertexCount*3*4);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
-		gl.enableVertexAttribArray(program.texCoord);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.iVbo);
 		gl.drawElements(gl.TRIANGLES,this.indexCount,gl.UNSIGNED_SHORT,0);
-		gl.disableVertexAttribArray(program.texCoord);
-		gl.disableVertexAttribArray(program.normal1);
-		gl.disableVertexAttribArray(program.vertex1);
-		gl.disableVertexAttribArray(program.normal0);
-		gl.disableVertexAttribArray(program.vertex0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
-		gl.bindBuffer(gl.ARRAY_BUFFER,null);
-		gl.bindTexture(gl.TEXTURE_2D,null);
 	},
-	drawNormals: function(program,t) {
-		var frame = Math.floor(t*this.frameCount);
-		if(!this.drawNormalsVbo) {
-			this.drawNormalsVbo = gl.createBuffer();
-			gl.bindBuffer(gl.ARRAY_BUFFER,this.drawNormalsVbo);
-			var normalsData = new Float32Array(this.frameCount*this.vertexCount*3*2),
-				p = 0;
-			for(var f=0; f<this.frameCount; f++)
-				for(var v=0; v<this.vertexCount; v++) {
-					var n = [0,0,0];
-					for(var i=0; i<3; i++) {
-						normalsData[p*2+i] = this.vnData[p+i];
-						n[i] = this.vnData[this.frameCount*this.vertexCount*3+p+i];
-					}
-					n = vec3_normalise(n);
-					for(var i=0; i<3; i++)
-						normalsData[p*2+3+i] = this.vnData[p+i] + n[i];
-					p += 3;
-				}
-			gl.bufferData(gl.ARRAY_BUFFER,normalsData,gl.STATIC_DRAW);
-		}
-		gl.bindBuffer(gl.ARRAY_BUFFER,this.drawNormalsVbo);
-		gl.enableVertexAttribArray(program.vertex);
-		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,frame*this.vertexCount*3*4*2);
-		gl.drawArrays(gl.LINES,0,this.vertexCount*2);
-		gl.disableVertexAttribArray(program.vertex);	
-		gl.bindBuffer(gl.ARRAY_BUFFER,null);
-		
+	_drawLerp: function(program,t) {
+		var frame0 = Math.floor(t*this.frameCount),
+			frame1 = (frame0+1)%this.frameCount,
+			lerp = t*this.frameCount - frame0;
+		gl.uniform1f(program.lerp,lerp);
+		if(this.twoSided)
+			gl.disable(gl.CULL_FACE);
+		else
+			gl.enable(gl.CULL_FACE);
+		gl.bindTexture(gl.TEXTURE_2D,this.texture);
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
+		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,(frame0+this.frameCount)*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,(frame1+this.frameCount)*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame0*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4);			
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
+		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.iVbo);
+		gl.drawElements(gl.TRIANGLES,this.indexCount,gl.UNSIGNED_SHORT,0);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
 	},
 	lineIntersection: function(lineOrigin,lineDir,lineSphere,intersects,frame) {
 		if(!sphere_sphere_intersects(this.boundingSphere,lineSphere))

@@ -136,7 +136,7 @@ function createOrtho2D(left,right,bottom,top,near,far) {
 }
 
 function createPerspective(fovy,aspect,near,far) {
-        var top = near*Math.tan(fovy*Math.PI/360.0);
+        var top = near*Math.tan(0.5*fovy*Math.PI/180.0);
         var right = top*aspect, left = -right, bottom = -top;
         var rl = (right-left);
         var tb = (top-bottom);
@@ -338,6 +338,8 @@ function vec3_normalise(v) {
 }
 
 function vec3_scale(v,f) {
+	if(f.length)
+		return [v[0]*f[0],v[1]*f[1],v[2]*f[2]];
 	return [v[0]*f,v[1]*f,v[2]*f];
 }
 
@@ -443,6 +445,10 @@ function vec3_length_sqrd(v) {
 
 function vec3_vec4(v,w) {
 	return [v[0],v[1],v[2],w];
+}
+
+function vecN(v) {
+	return Array.prototype.concat.call(v,Array.prototype.slice.call(arguments,1));
 }
 
 function quat_to_mat4(q) {
@@ -1125,19 +1131,16 @@ var programs = {
 				"precision mediump float;\n"+
 				"varying vec2 texel;\n"+
 				"varying lowp vec3 lighting;\n"+
-				"uniform float t;\n"+
-				"attribute vec3 vertex1, vertex2;\n"+
-				"attribute vec3 normal1, normal2;\n"+
+				"attribute vec3 vertex;\n"+
+				"attribute vec3 normal;\n"+
 				"attribute vec2 texCoord;\n"+
 				"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
 				"uniform lowp vec3 lightDir, ambientLight, lightColour;\n"+
 				"void main() {\n"+
-				"	vec3 normal = mix(normal1,normal2,t);\n"+
 				"	vec3 transformed = normalize(nMatrix * vec4(normal,0.0)).xyz;\n"+
 				"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
 				"	lighting = ambientLight + (lightColour*directional);\n"+
 				"	texel = texCoord;\n"+
-				"	vec3 vertex = mix(vertex1,vertex2,t);\n"+
 				"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
 				"}\n",
 				"precision mediump float;\n"+
@@ -1153,41 +1156,108 @@ var programs = {
 				"	float fogFactor = exp2(-fogDensity*fogDensity*z*z*LOG2);\n"+
 				"	fogFactor = clamp(fogFactor,0.0,1.0);\n"+
 				"	vec4 fragColour = texture2D(texture,texel) * colour;\n"+
+				"	if(fragColour.a < 0.1) discard;\n"+
 				"	fragColour.rgb *= lighting;\n"+
 				"	gl_FragColor = mix(fogColour,fragColour,fogFactor);\n"+
 				"}\n",
-				["pMatrix","mvMatrix","nMatrix","t",
+				["pMatrix","mvMatrix","nMatrix",
+					"texture","colour",
+					"lightDir","ambientLight","lightColour",
+					"fogDensity","fogColour"],
+				["vertex","normal","texCoord"]);
+		} else
+			var program = programs.standard.program;
+		var args = Array.prototype.slice.call(arguments,0);
+		args.unshift(program);
+		programs.draw.apply(programs,args);
+	},
+	standardLerp: function(cb,uniforms,self) {
+		assert(cb);
+		if(!programs.standardLerp.program) {
+			var program = programs.standardLerp.program = createProgram(
+				"precision mediump float;\n"+
+				"varying vec2 texel;\n"+
+				"varying lowp vec3 lighting;\n"+
+				"uniform float lerp;\n"+
+				"attribute vec3 vertex1, vertex2;\n"+
+				"attribute vec3 normal1, normal2;\n"+
+				"attribute vec2 texCoord;\n"+
+				"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
+				"uniform lowp vec3 lightDir, ambientLight, lightColour;\n"+
+				"void main() {\n"+
+				"	vec3 normal = mix(normal1,normal2,lerp);\n"+
+				"	vec3 transformed = normalize(nMatrix * vec4(normal,0.0)).xyz;\n"+
+				"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
+				"	lighting = ambientLight + (lightColour*directional);\n"+
+				"	texel = texCoord;\n"+
+				"	vec3 vertex = mix(vertex1,vertex2,lerp);\n"+
+				"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+				"}\n",
+				"precision mediump float;\n"+
+				"varying vec2 texel;\n"+
+				"varying lowp vec3 lighting;\n"+
+				"uniform sampler2D texture;\n"+
+				"uniform lowp vec4 colour;\n"+
+				"uniform float fogDensity;\n"+
+				"uniform lowp vec4 fogColour;\n"+
+				"const float LOG2 = 1.442695;\n"+
+				"void main() {\n"+
+				"	float z = gl_FragCoord.z / gl_FragCoord.w;\n"+
+				"	float fogFactor = exp2(-fogDensity*fogDensity*z*z*LOG2);\n"+
+				"	fogFactor = clamp(fogFactor,0.0,1.0);\n"+
+				"	vec4 fragColour = texture2D(texture,texel) * colour;\n"+
+				"	if(fragColour.a < 0.1) discard;\n"+
+				"	fragColour.rgb *= lighting;\n"+
+				"	gl_FragColor = mix(fogColour,fragColour,fogFactor);\n"+
+				"}\n",
+				["pMatrix","mvMatrix","nMatrix","lerp",
 					"texture","colour",
 					"lightDir","ambientLight","lightColour",
 					"fogDensity","fogColour"],
 				["vertex1","normal1","vertex2","normal2","texCoord"]);
 		} else
-			var program = programs.standard.program;
+			var program = programs.standardLerp.program;
+		var args = Array.prototype.slice.call(arguments,0);
+		args.unshift(program);
+		programs.draw.apply(programs,args);
+	},
+	draw: function(program,cb,uniforms,self) {
 		uniforms = uniforms || {};
 		gl.useProgram(program);
-		gl.uniformMatrix4fv(program.pMatrix,false,uniforms.pMatrix);
-		gl.uniformMatrix4fv(program.mvMatrix,false,uniforms.mvMatrix);
-		gl.uniformMatrix4fv(program.nMatrix,false,uniforms.nMatrix);
-		gl.uniform4fv(program.colour,uniforms.colour || OPAQUE);
-		gl.uniform1i(program.texture,0);
-		gl.bindTexture(gl.TEXTURE_2D,uniforms.tex || programs.blankTex);
-		gl.uniform3fv(program.lightDir,uniforms.lightDir || vec3_normalise([-3,1,-5]));
-		gl.uniform3fv(program.ambientLight,uniforms.ambientLight || [0.5,0.5,0.5]);
-		gl.uniform3fv(program.lightColour,uniforms.lightColour || [1,1,1]);
-		gl.uniform1f(program.fogDensity,uniforms.fogDensity || 0); // default no fog
-		gl.uniform4fv(program.fogColour,uniforms.fogColour || [1.0,1.0,1.0,0.0]);
-		gl.uniform1f(program.t,uniforms.t || 0);
-		gl.enableVertexAttribArray(program.texCoord);
-		gl.enableVertexAttribArray(program.normal1);
-		gl.enableVertexAttribArray(program.normal2);
-		gl.enableVertexAttribArray(program.vertex1);
-		gl.enableVertexAttribArray(program.vertex2);
-		cb.call(self||window,program);
-		gl.disableVertexAttribArray(program.vertex2);
-		gl.disableVertexAttribArray(program.vertex1);
-		gl.disableVertexAttribArray(program.normal2);
-		gl.disableVertexAttribArray(program.normal1);
-		gl.disableVertexAttribArray(program.texCoord);
+		// use in operator instead of program.var because 0 is a valid value
+		if("mvpMatrix" in program) gl.uniformMatrix4fv(program.pMatrix,false,uniforms.mvpMatrix||mat4_multiply(uniforms.pMatrix,uniforms.mvMatrix));
+		if("pMatrix" in program) gl.uniformMatrix4fv(program.pMatrix,false,uniforms.pMatrix);
+		if("mvMatrix" in program) gl.uniformMatrix4fv(program.mvMatrix,false,uniforms.mvMatrix);
+		if("nMatrix" in program) gl.uniformMatrix4fv(program.nMatrix,false,uniforms.nMatrix||mat4_transpose(mat4_inverse(uniforms.mvMatrix)));
+		if("spriteScale" in program) gl.uniform1f(program.spriteScale,uniforms.spriteScale);
+		if("colour" in program) gl.uniform4fv(program.colour,uniforms.colour || OPAQUE);
+		if("texture" in program) {
+			gl.uniform1i(program.texture,0);
+			gl.bindTexture(gl.TEXTURE_2D,uniforms.tex || programs.blankTex);
+		}
+		if("lightDir" in program) gl.uniform3fv(program.lightDir,uniforms.lightDir || vec3_normalise([-3,1,-5]));
+		if("ambientLight" in program) gl.uniform3fv(program.ambientLight,uniforms.ambientLight || [0.5,0.5,0.5]);
+		if("lightColour" in program) gl.uniform3fv(program.lightColour,uniforms.lightColour || [1,1,1]);
+		if("fogDensity" in program) gl.uniform1f(program.fogDensity,uniforms.fogDensity || 0); // default no fog
+		if("fogColour" in program) gl.uniform4fv(program.fogColour,uniforms.fogColour || [1.0,1.0,1.0,0.0]);
+		if("lerp" in program) gl.uniform1f(program.lerp,uniforms.lerp || 0);
+		if("texCoord" in program) gl.enableVertexAttribArray(program.texCoord);
+		if("normal1" in program) gl.enableVertexAttribArray(program.normal1);
+		if("normal2" in program) gl.enableVertexAttribArray(program.normal2);
+		if("normal" in program) gl.enableVertexAttribArray(program.normal);
+		if("vertex" in program) gl.enableVertexAttribArray(program.vertex);
+		if("vertex1" in program) gl.enableVertexAttribArray(program.vertex1);
+		if("vertex2" in program) gl.enableVertexAttribArray(program.vertex2);
+		var args = Array.prototype.slice.call(arguments,4);
+		args.unshift(program);
+		cb.apply(self||window,args);
+		if("vertex2" in program) gl.disableVertexAttribArray(program.vertex2);
+		if("vertex1" in program) gl.disableVertexAttribArray(program.vertex1);
+		if("vertex" in program) gl.disableVertexAttribArray(program.vertex);
+		if("normal" in program) gl.disableVertexAttribArray(program.normal);
+		if("normal2" in program) gl.disableVertexAttribArray(program.normal2);
+		if("normal1" in program) gl.disableVertexAttribArray(program.normal1);
+		if("texCoord" in program) gl.disableVertexAttribArray(program.texCoord);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.bindTexture(gl.TEXTURE_2D,null);
 		gl.useProgram(null);
@@ -1266,12 +1336,9 @@ Square.prototype = {
 			gl.bufferData(gl.ARRAY_BUFFER,this.buf,gl.STATIC_DRAW);
 			this.dirty = false;
 		}
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,6*4,0);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,6*4,3*4);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,6*4,0);
-		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,6*4,3*4);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
-		gl.lineWidth(4);
 		gl.drawArrays(gl.LINES,0,4*2);
 	},
 };
@@ -1368,11 +1435,14 @@ VertexBuffer.prototype = {
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 	},
 	update: function() {
-		this.len = this.refs.length;
-		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
-		gl.bufferData(gl.ARRAY_BUFFER,this.buf.subarray(0,this.offset(this.len)),gl.STATIC_DRAW);
-		this.ready = true;
-		this.dirty = false;
+		if(this.dirty) {
+			this.len = this.refs.length;
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+			gl.bufferData(gl.ARRAY_BUFFER,this.buf.subarray(0,this.offset(this.len)),gl.STATIC_DRAW);
+			gl.bindBuffer(gl.ARRAY_BUFFER,null);
+			this.ready = true;
+			this.dirty = false;
+		}
 	},
 };	
 
@@ -1384,10 +1454,8 @@ Cubes.prototype = {
 	__proto__: VertexBuffer.prototype,
 	doDraw: function(program) {
 		gl.uniform4fv(program.colour,this.colour);
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,6*4,0);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,6*4,3*4);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,6*4,0);
-		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,6*4,3*4);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,6*4,0);
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,6*4,3*4);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
 		gl.drawArrays(gl.TRIANGLES,0,this.len*createCube.numVertices);		
 	},
@@ -1453,13 +1521,67 @@ Lines.prototype = {
 		VertexBuffer.prototype.draw.call(this,{ __proto__: uniforms, colour: this.colour, });
 	},
 	doDraw: function(program) {
-		gl.lineWidth(this.lineWidth);
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,0);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,0);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,0); // noise
-		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,0); // noise
+		//gl.lineWidth(this.lineWidth);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,3*4,0); // noise
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
 		gl.drawArrays(gl.LINES,0,this.len*2);
+	},
+};
+
+function Quad(quads,ctx,idx) {
+	this.quads = quads;
+	this.ctx = ctx;
+	this.idx = idx;
+}
+Quad.prototype = {
+	set: function(pts) {
+		if(!pts) return;
+		var 	quads = this.quads,
+			ofs = quads.offset(this.idx), 
+			buf = quads.buf,
+			normal = triangle_normal(pts[0],pts[1],pts[2]);
+			emit = function(vec) {
+				for(var i=0; i<vec.length; )
+					buf[ofs++] = vec[i++];
+			};
+		emit(pts[0]); emit(normal);    
+		emit(pts[1]); emit(normal);
+		emit(pts[2]); emit(normal);
+		if(pts.length == 4) {
+			emit(pts[0]); emit(normal);
+			emit(pts[2]); emit(normal);
+			emit(pts[3]); emit(normal);
+		} else {
+			assert(pts.length == 6);
+			normal = triangle_normal(pts[3],pts[4],pts[5]);
+			emit(pts[3]); emit(normal);
+			emit(pts[4]); emit(normal);
+			emit(pts[5]); emit(normal);			
+		}
+		quads.dirty = true;
+	},
+	remove: function() {
+		this.quads.remove(this);
+	},
+};
+
+function Quads(colour,texture) {
+	VertexBuffer.call(this,8*6,Quad);
+	this.colour = colour;
+	this.texture = texture;
+}
+Quads.prototype = {
+	__proto__: VertexBuffer.prototype,
+	draw: function(uniforms) {
+		this.update();
+		VertexBuffer.prototype.draw.call(this,{ __proto__: uniforms, colour: this.colour, tex: this.texture, });
+	},
+	doDraw: function(program) {
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,8*4,0);
+		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,8*4,3*4);
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,8*4,5*4);
+		gl.drawArrays(gl.TRIANGLES,0,this.len*6);
 	},
 };
 

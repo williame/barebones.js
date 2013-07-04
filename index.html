@@ -37,9 +37,12 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. -->
 
+<style type="text/css">
+body { border:0px;margin:0px;padding:0px; background-color: black; color: white; }
+.error { background: yellow; color: red; margin: 2px; padding: 2px; }
+#main-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
+</style>
 <script type="text/javascript">
-
-var gl, canvas, audio, messages, keys = {}, mousePos = null;
 
 function game() { //### you replace this!  This is called when the framework has finished loading
 	game.menu = new UIWindow(false,new UIPanel([
@@ -77,8 +80,12 @@ function onResize(evt) { //### just test code so our demos can resize appropriat
 		setDemo.demo.onResize(evt);
 }
 
+// framework code follows:
+
+var gl, canvas, splash, audio, messages, keys = {}, loading = true, mousePos = null, cacheHash, unhandledEventHandler;
+
 function init() {
-	if(false /*!window.Worker*/) { // #### enable this check if you want to use web workers
+	if(!window.Worker) {
 		document.getElementById("errWebWorkers").style.display = "block";
 		return;
 	}
@@ -94,57 +101,73 @@ function init() {
 		document.getElementById("errWebGL").style.display = "block";
 		return;
 	}
+	canvas.addEventListener("webglcontextlost",function(evt) {
+		canvas.style.display = "none";
+		document.getElementById("errWebGL").style.display = "block";
+		console.log(evt);
+		evt.preventDefault();
+	},false);
 	window.onerror = function(msg,url,lineno) {
 		console.log("ERROR:",msg,url,lineno);
 		if(fail.error) return;
 		fail.error = true;
 		alert("ERROR "+url+"#"+lineno+"\n"+msg);
 	};
-  	window.onresize = function(evt) {
+	if(gl.getSupportedExtensions)
+		console.log("GL Extensions: "+gl.getSupportedExtensions());
+	var handleEvent = function(name) {
+		var args = Array.prototype.slice.call(arguments,1);
+		(window.UI && name in UI && UI[name].apply(UI,args)) ||
+		(unhandledEventHandler && name in unhandledEventHandler &&
+			unhandledEventHandler[name].apply(unhandledEventHandler,args)) ||
+		(name in window && window[name].apply(window,args));
+	};
+	window.onresize = function(evt) {
   		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
   		canvas.width = canvas.offsetWidth;
 		canvas.height = canvas.offsetHeight;
 		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
-		if(window.onResize) // game code hook if its interested
-			window.onResize(evt);
+		if(splash) splash.dirty();
+		handleEvent("onResize",evt);
 	};
 	window.onresize();
 	var audioFactory = window.webkitAudioContext || window.mozAudioContext;
 	if(audioFactory)
 		audio = new audioFactory();
-	var 	isMouseDown = false,
+	var	isMouseDown = false,
 		onMouseDown = function(evt) {
 			evt.cancelBubble = true;
+			evt.preventDefault();
 			isMouseDown = true;
-			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
-				window.onMouseDown(evt,keys);
+			if(evt.target !== canvas)
+				return false;
+			handleEvent("onMouseDown",evt,keys);
 			schedule.run();
 			return false;
 		},
 		onMouseMove = function(evt) {
 			evt.cancelBubble = true;
+			evt.preventDefault();
 			if(evt.target !== canvas)
 				return;
 			mousePos = [evt.clientX,evt.clientY];
-			if(!UI.onMouseMove(evt,keys,isMouseDown) && window.onMouseMove)
-				window.onMouseMove(evt,keys,isMouseDown);
+			handleEvent("onMouseMove",evt,keys,isMouseDown);
 			schedule.run();
 		},
 		onMouseOver = function(evt) {
 			evt.cancelBubble = true;
+			evt.preventDefault();
 			if(isMouseDown)
 				onMouseUp(evt);
 			isMouseDown = false;
-			if(window.onMouseOver)
-				window.onMouseOver(evt);
+			handleEvent("onMouseOver",evt);
 		},
 		onMouseOut = function(evt) {
 			evt.cancelBubble = true;
 			if(isMouseDown)
 				onMouseUp(evt);
 			isMouseDown = false;
-			if(window.onMouseOut)
-				window.onMouseOut(evt);
+			handleEvent("onMouseOut",evt);
 			mousePos = null;
 		},
 		onMouseUp = function(evt) {
@@ -152,8 +175,7 @@ function init() {
 			isMouseDown = false;
 			if(evt.target !== canvas)
 				return false;
-			if(!UI.onMouseUp(evt,keys) && window.onMouseUp)
-				window.onMouseUp(evt,keys);
+			handleEvent("onMouseUp",evt,keys);
 			schedule.run();
 			return false;
 		},
@@ -162,8 +184,7 @@ function init() {
 			evt.preventDefault();
 			if(evt.target !== canvas)
 				return false;
-			if(!UI.onContextMenu(evt,keys) && window.onContextMenu)
-				window.onContextMenu(evt,keys);
+			handleEvent("onContextMenu",evt,keys);
 			schedule.run();
 			return false;
 		},
@@ -171,27 +192,26 @@ function init() {
 			evt.cancelBubble = true;
 			if(!keys[evt.which]) {
 				keys[evt.which] = true;
-				if(!UI.onKeyDown(evt,keys) && window.onKeyDown)
-					window.onKeyDown(evt,keys);
+				handleEvent("onKeyDown",evt,keys);
 			}
 			schedule.run();
 			return false;
 		},
 		onKeyUp = function(evt) {
 			evt.cancelBubble = true;
+			evt.preventDefault();
 			if(keys[evt.which]) {
 				keys[evt.which] = false;
-				if(!UI.onKeyUp(evt,keys) && window.onKeyUp)
-					window.onKeyUp(evt,keys);
+				handleEvent("onKeyUp",evt,keys);
 			}
 			schedule.run();
 			return false;
 		},
 		onMouseWheel = function(evt) {
 			evt.cancelBubble = true;
-			var amount = (evt.detail||evt.wheelDelta);
-			if(!UI.onMouseWheel(evt,amount) && window.onZoom)
-				window.onMouseWheel(evt,amount);
+			evt.preventDefault();
+			var amount = (evt.detail||(evt.wheelDelta*-0.08));
+			handleEvent("onMouseWheel",evt,amount);
 		};
 	var loaded = Waiter(function() {
 			document.addEventListener("mousedown",onMouseDown,true);
@@ -205,7 +225,26 @@ function init() {
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
 			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
-			// phase 2: load the game files that depend up barebones.js being loaded
+			window.focus();
+			// splash
+			var splashCtrl = new UIComponent();
+			loadFile("image","data/logo.png",function() { splashCtrl.dirty(); });
+			splashCtrl.setSize([canvas.width,canvas.height]);
+			splashCtrl.draw = function(ctx) {
+				var font = splashCtrl.getFont(), alpha = splash.alpha;
+				drawLogo(ctx,alpha);
+				if(!font) return;
+				var	label = "loading...",
+					sz = ctx.measureText(font,label),
+					x = (canvas.width-sz[0])*0.5,
+					y = (canvas.height-sz[1])*0.75;
+				ctx.fillRoundedRect([0.7,0.7,0,0.9*alpha],3,x,y,x+sz[0],y+sz[1]);
+				ctx.drawTextOutlined(font,[1,1,1,alpha],[0,0,0,alpha],x-1,y-1,label);
+			};
+			splash = new UIWindow(false,splashCtrl);
+			splash.alpha = 1;
+			window.requestAnimFrame(loadLoop);
+			// phase2 loading
 			loaded = Waiter(function() {
 					window.focus();
 					window.requestAnimFrame(loop);
@@ -215,7 +254,13 @@ function init() {
 			loadFile("javascript","demo_g3d.js",loaded());
 			loadFile("javascript","demo_grid_terrain.js",loaded());
 		});
-	// phase 1: load the barebones.js framework
+	if(!isOnGithubPages() && !isLocalHost()) {
+		var doc = new XMLHttpRequest();
+		doc.open("POST","/api/get_hash",false);
+		doc.send();
+		if(doc.status == 200 || doc.status == 0)
+			cacheHash = JSON.parse(doc.response).hash;
+	}
 	loadFile("javascript","glutil.js",loaded());
 	loadFile("javascript","ui.js",loaded());
 	loadFile("javascript","g3d.js",loaded()); // you don't need to load this if you're not openning G3D files
@@ -225,8 +270,24 @@ function isOnGithubPages() {
 	return window.location.hostname.indexOf(".github.") > 0;
 }
 
-function isLocalFile() {
-	return "file:" === document.location.protocol;
+function isLocalHost() {
+	return "file:" === window.location.protocol || window.location.hostname == "localhost";
+}
+
+
+function drawLogo(ctx,alpha) {
+	ctx.clear();
+	ctx.fillRect([0,0,0,alpha],0,0,canvas.width,canvas.height);
+	var logo = getFile("image","data/logo.png");
+	if(logo) {
+		var	x = (canvas.width-logo.width)/2,
+			y = (canvas.height-logo.height)/2;
+		ctx.drawRect(logo,[1,1,1,alpha],
+			Math.max(x,0),Math.max(y,0),
+			Math.min(x+logo.width,canvas.width),
+			Math.min(y+logo.height,canvas.height),
+			0,0,1,1);
+	}
 }
 
 function addMessage(secs,from,text,tag) {
@@ -267,8 +328,9 @@ function removeMessage(tag) {
 function isUndefined(o) { return typeof(o) === "undefined"; }
 function isDefined(o) { return typeof(o) !== "undefined"; }
 
-function assert(condition,msg) {
-	if(!condition) fail("ASSERTION FAILED\n"+(msg||"an error occurred"));
+function assert(condition) {
+	if(!condition)
+		fail("ASSERTION FAILED\n"+(Array.prototype.slice.call(arguments,1)||"an error occurred"));
 }
 
 function fail(msg) {
@@ -292,9 +354,22 @@ function loop() {
 		window.requestAnimFrame(loop);
 		schedule.run();
 		if(canvas.width && canvas.height) {
-			if(window.render)
-				window.render();
+			if(window.render) {
+				if(window.perf)
+					perf.tick();
+				render();
+			}
 			UI.draw(canvas);
+			if(splash) {
+				var fade = now()-splash.fade, timeout = 1000;
+				if(fade > timeout)
+					splash = null;
+				else {
+					splash.alpha = 1-fade/timeout;
+					splash.dirty();
+					splash.draw(canvas);
+				}
+			}
 		}
 	} catch(e) {
 		fail.error = e;
@@ -304,11 +379,27 @@ function loop() {
 	}
 }
 
-function printStack(msg) {
+function loadLoop() {
+	if(fail.error) return;
 	try {
-		throw new Error();
+		if(!loading || (window.isLoadingComplete && window.isLoadingComplete())) {
+			loading = false;
+			splash.fade = now();
+			loop();
+			return;
+		}
+		window.requestAnimFrame(loadLoop);
+		schedule.run();
+		if(canvas.width && canvas.height && splash) {
+			gl.clearColor(0,0,0,1);
+			gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+			splash.draw(canvas,1);
+		}
 	} catch(e) {
-		console.log(msg||"",e.stack||"<no stack>");
+		fail.error = e;
+		console.log("ERROR:",e);
+		console.log(e.stack||"<no stack>");
+		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
 	}
 }
 
@@ -371,46 +462,51 @@ function getFile(type,path) {
 }
 
 function loadFile(type,path,callback) {
-	loadFile.loading = loadFile.loading || [];
-	loadFile.loadingWait = loadFile.loadingWait || null;
-	loadFile.loaded = loadFile.loaded || [];
-	callback = callback || function(){};
 	var	key = ""+type+":"+path,
 		args = Array.prototype.slice.call(arguments).slice(3);
 	if(key in loadFile.loaded) {
 		console.log("serving",type,path,"from cache...");
-		setTimeout(function() { callback(loadFile.loaded[key]); },0);
+		if(callback)
+			setTimeout(function() { callback(loadFile.loaded[key]); },0);
 		return;
 	}
 	if(key in loadFile.loading) {
-		console.log("already loading",type,path,"...");
-		loadFile.loading[key].push([callback,args]);
+		//console.log("already loading",type,path,"...");
+		if(callback)
+			loadFile.loading[key].push([callback,args]);
 		return;
 	}
 	console.log("loading",type,path,"...");
-	loadFile.loading[key] = [[callback,args]];
+	if(cacheHash && path.indexOf("_hash=") == -1)
+		path += (path.indexOf("?") == -1? "?": "&") + "_hash="+cacheHash;
+	if(splash) splash.dirty();
+	loadFile.loading[key] = callback?[[callback,args]]:[];
 	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
 	loadFile.loadingWait = setTimeout(function() {
 		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
 		console.log("awaiting load of:",loadFile.loading);
+		if(splash) splash.dirty();
 	},3000);
-	var done = function(arg) {
-		console.log("loaded",key);
-		arg = loadFile.loaded[key] = loadFile.loaded[key] || arg; // could have been set by setFile() in meantime
-		var callbacks = loadFile.loading[key];
-		delete loadFile.loading[key];
-		if(!loadFile.loading.length) clearTimeout(loadFile.loadingWait);
-		for(callback in callbacks) {
-			callback = callbacks[callback];
-			callback[1].unshift(arg);
-			if(callback[0])
-				callback[0].apply(this,callback[1]);
-		}
-	};
+	var	fail = Callback(null,function(e) { window.onerror("failed to load",type,path); }),
+		done = function(arg) {
+			console.log("loaded",key);
+			if(splash) splash.dirty();
+			arg = loadFile.loaded[key] = loadFile.loaded[key] || arg; // could have been set by setFile() in meantime
+			var callbacks = loadFile.loading[key];
+			delete loadFile.loading[key];
+			if(!loadFile.loading.length) clearTimeout(loadFile.loadingWait);
+			for(callback in callbacks) {
+				callback = callbacks[callback];
+				callback[1].unshift(arg);
+				if(callback[0])
+					callback[0].apply(this,callback[1]);
+			}
+		};
 	if(type == "javascript") {
 		var script = document.createElement('script');
 		script.setAttribute("type","text/javascript");
 		script.setAttribute("src",path);
+		script.onerror = fail;
 		script.async = true;
 		script.onload = function() {
 			if(!script.readyState || script.readyState == "loaded" || script.readyState == "complete")
@@ -421,6 +517,7 @@ function loadFile(type,path,callback) {
 		document.getElementsByTagName("head")[0].appendChild(script);
 	} else if(type == "image") {
 		var image = new Image();
+		image.onerror = fail;
 		image.onload = function() {
 			done(createTexture(null,null,null,image));
 		};
@@ -430,6 +527,7 @@ function loadFile(type,path,callback) {
 	} else if(type == "xml") {
 		var doc = new XMLHttpRequest();
 		doc.open("GET",path,true);
+		doc.onerror = fail;
 		doc.onreadystatechange = function() {
 			if (doc.readyState==4 && (!doc.status || doc.status==200))
 				done(doc.responseXML);
@@ -439,6 +537,7 @@ function loadFile(type,path,callback) {
 		var doc = new XMLHttpRequest();
 		doc.open("GET",path,true);
 		doc.overrideMimeType("application/json");
+		doc.onerror = fail;
 		doc.onreadystatechange = function() {
 			if (doc.readyState==4 && (!doc.status || doc.status==200))
 				done(JSON.parse(doc.response));
@@ -449,6 +548,7 @@ function loadFile(type,path,callback) {
 		doc.open("GET",path,true);
 		doc.responseType = "arraybuffer";
 		doc.overrideMimeType('text/plain; charset=x-user-defined');
+		doc.onerror = fail;
 		doc.onreadystatechange = function() {
 			if (doc.readyState==4 && (!doc.status || doc.status==200))
 				done(doc.response);
@@ -462,6 +562,7 @@ function loadFile(type,path,callback) {
 			doc.open("GET",path,true);
 			doc.responseType = "arraybuffer";
 			doc.overrideMimeType('text/plain; charset=x-user-defined');
+			doc.onerror = fail;
 			doc.onreadystatechange = function() {
 				if (doc.readyState==4 && (!doc.status || doc.status==200))
 					audio.decodeAudioData(doc.response,done);
@@ -469,8 +570,11 @@ function loadFile(type,path,callback) {
 			doc.send();
 		}
 	} else
-		console.log("unsupported type",type,path);
+		fail("unsupported type: "+type+path);
 }
+loadFile.loading = [];
+loadFile.loadingWait = null;
+loadFile.loaded = [];
 
 // Data Views are not widely supported in HTML5 browsers yet, so we roll our own and we're happy with it
 function BinaryDataReader(arrayBuffer) {
@@ -565,9 +669,13 @@ BinaryDataReader.prototype = {
 	},
 };
 
+function choose(list) {
+	return list[Math.floor(Math.random()*list.length)];
+}
+
 function randomSound(list) {
 	if(list.length && audio)
-		playSound(list[Math.floor(Math.random()*list.length)]);
+		playSound(choose(list));
 }
 
 function playSound(clip,volume) {
@@ -584,11 +692,9 @@ function playSound(clip,volume) {
 	source.noteOn(0);
 }
 
-function schedule(func,last) { // by default, most recently scheduled are run first
-	if(last)
-		schedule._items.unshift(func);
-	else
-		schedule._items.push(func);
+function schedule(cb) { // most recently scheduled are run first
+	assert(cb);
+	schedule._items.push(Array.prototype.slice.call(arguments,0));
 }
 
 schedule._items = [];
@@ -596,8 +702,10 @@ schedule._items = [];
 schedule.run = function() {
 	for(var items = schedule._items; items.length; items = schedule._items) {
 		schedule._items = [];
-		for(var i=items.length; i-->0; ) // most recently pushed first
-			items[i]();
+		for(var i=items.length; i-->0; ) { // most recently pushed first
+			var item = items[i], cb = item[0], args = item.slice(1);
+			cb.apply(window,args);
+		}
 	}
 };
 
@@ -623,25 +731,41 @@ WebWorker.prototype = {
 			assert(ctx);
 		if(!this.worker) {
 			var self = this, path = this.scriptFilename;
+			if(cacheHash && path.indexOf("_hash=") == -1)
+				path += (path.indexOf("?") == -1? "?": "&") + "_hash="+cacheHash;
 			this.worker = new Worker(path);
+			this.worker.onerror = fail;
 			this.worker.onmessage = function() { self.receive.apply(self,arguments); };
 		}
+		var args = Array.prototype.slice.call(arguments,4);
 		if(!byRef)
 			this.worker.postMessage(JSON.stringify(data));
 		else
 			this.worker.postMessage(data,[data]);
-		this.inflight.push([callback,ctx]);
+		this.inflight.push([callback,ctx,args]);
 	},
 	receive: function(evt) {
 		var	callback = this.inflight.shift(),
-			ctx = callback[1], callback = callback[0],
+			ctx = callback[1], args = callback[2], callback = callback[0],
 			data = evt.data;
 		if(data && data.error)
 			window.onerror(data.error);
-		else if(callback)
-			callback.call(ctx,evt.data);
+		else if(callback) {
+			if(evt.data)
+				args.unshift(evt.data);
+			callback.apply(ctx,args);
+		}
 	},
 };
+
+function Callback(self,callback) {
+	var args = arguments.length > 2? Array.prototype.slice.call(arguments,3): null;
+	return function() {
+		var a = Array.prototype.slice.call(arguments,0);
+		Array.prototype.unshift.apply(a,args);
+		return callback.apply(self,a);
+	}
+}
 
 window.requestAnimFrame = 
 	window.requestAnimationFrame ||
@@ -654,18 +778,13 @@ window.requestAnimFrame =
 	};
 
 </script>
-<style type="text/css">
-body { border:0px;margin:0px;padding:0px; background-color: black; color: white; }
-.error { background: yellow; color: red; margin: 2px; padding: 2px; }
-#main-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
-</style>
 <body onload="init()">
 <div id="errWebWorkers" class="error" style="display: none;">Sorry, your browser does not support HTML5 web workers</div>
 <div id="errWebGL" class="error" style="display: none;">Sorry, could not initialize webGL</div>
 <noscript>
 <div class="error">Sorry, you don't have Javascript enabled :(</div>
 </noscript>
-<canvas id="main-canvas">
+<canvas id="main-canvas" moz-opaque>
 <div class="error">Sorry, you don't have webGL enabled :(</div>
 </canvas>
 <script type="text/javascript">
