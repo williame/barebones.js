@@ -133,7 +133,7 @@ function UIContext() {
 			"void main() {\n"+
 			"	vec4 c = texture2D(texture,tx);\n"+
 			"	gl_FragColor = colour * c;\n"+
-			"}",["mvp","colour","z","texture"],["vertex","texcoord"]);
+			"}");
 };
 UIContext.corners = {};
 UIContext.prototype = {
@@ -220,6 +220,12 @@ UIContext.prototype = {
 		this.data = this.data.concat([
 			x1,y2,tx1,ty2, x2,y1,tx2,ty1, x1,y1,tx1,ty1, //CCW
 			x2,y2,tx2,ty2, x2,y1,tx2,ty1, x1,y2,tx1,ty2]);
+	},
+	drawQuad: function(texture,colour,a,b,c,d,ta,tb,tc,td) {
+		this.set(texture,colour,gl.TRIANGLES);
+		this.data = this.data.concat([
+			b[0],b[1],tb[0],tb[1], a[0],a[1],ta[0],ta[1], c[0],c[1],tc[0],tc[1], //CCW
+			b[0],b[1],tb[0],tb[1], c[0],c[1],tc[0],tc[1], d[0],d[1],td[0],td[1]]);
 	},
 	fillRect: function(colour,x1,y1,x2,y2) {
 		this.drawRect(programs.blankTex,colour,x1,y1,x2,y2,0,0,1,1);
@@ -327,6 +333,74 @@ UIContext.prototype = {
 			x + xdir*pt[2]*scale, y + ydir*pt[3]*scale,
 			1, 1
 		);
+	},
+	drawBorderedRect: function(atlas,colour,x1,y1,x2,y2,borderSize,margin,cornerIdx,sideIdx,backgroundIdx) {
+		var corner, tx1, ty1, tx2, ty2, xofs, xlen, xremainder, xscale, yofs, ylen, yremainder, yscale;
+		if(backgroundIdx) {
+			corner = atlas.getTextureQuad(backgroundIdx);
+			tx1 = corner[1][0]; ty1 = corner[1][1];
+			tx2 = corner[0][0]; ty2 = corner[3][1];
+			xofs = x1 + margin;
+			xremainder = (x2-x1)-(margin*2);
+			while(xremainder > 0) {
+				xlen = Math.min(borderSize,xremainder);
+				xscale = lerp(tx1,tx2,xlen/borderSize);
+				yofs = y1 + margin;
+				yremainder = (y2-y1)-(margin*2);
+				while(yremainder > 0) {
+					ylen = Math.min(borderSize,yremainder);
+					this.drawRect(atlas.texture,colour,
+						xofs,yofs,xofs+xlen,yofs+ylen,
+						tx1,ty1,
+						xscale,lerp(ty1,ty2,ylen/borderSize));
+					yofs += ylen;
+					yremainder -= ylen;
+				}
+				xofs += xlen;
+				xremainder -= xlen;
+			}
+		}
+		if(cornerIdx) {
+			corner = atlas.getTextureQuad(cornerIdx);
+			tx1 = corner[1][0]; ty1 = corner[1][1];
+			tx2 = corner[0][0]; ty2 = corner[3][1];
+			this.drawRect(atlas.texture,colour,x1,y1,x1+borderSize,y1+borderSize,tx1,ty1,tx2,ty2);
+			this.drawRect(atlas.texture,colour,x2-borderSize,y1,x2,y1+borderSize,tx2,ty1,tx1,ty2);
+			this.drawRect(atlas.texture,colour,x1,y2-borderSize,x1+borderSize,y2,tx1,ty2,tx2,ty1);
+			this.drawRect(atlas.texture,colour,x2-borderSize,y2-borderSize,x2,y2,tx2,ty2,tx1,ty1);
+		}
+		if(sideIdx) {
+			corner = atlas.getTextureQuad(sideIdx);
+			tx1 = corner[1][0]; ty1 = corner[1][1];
+			tx2 = corner[0][0]; ty2 = corner[3][1];
+			xofs = x1 + borderSize;
+			xremainder = (x2-x1)-(borderSize*2);
+			while(xremainder > 0) {
+				xlen = Math.min(borderSize,xremainder);
+				xscale = lerp(tx1,tx2,xlen/borderSize);
+				this.drawRect(atlas.texture,colour,xofs,y1,xofs+xlen,y1+borderSize,tx1,ty1,xscale,ty2);
+				this.drawRect(atlas.texture,colour,xofs,y2,xofs+xlen,y2-borderSize,tx1,ty1,xscale,ty2);
+				xofs += xlen;
+				xremainder -= xlen;
+			}
+			yofs = y1 + borderSize;
+			yremainder = (y2-y1)-(borderSize*2);
+			while(yremainder > 0) {
+				ylen = Math.min(borderSize,yremainder);
+				yscale = ylen/borderSize;
+				this.drawQuad(atlas.texture,colour,
+					[x1,yofs],[x1+borderSize,yofs],[x1,yofs+ylen],[x1+borderSize,yofs+ylen],
+					corner[0],corner[3],
+					vec2_lerp(corner[0],corner[1],yscale),vec2_lerp(corner[3],corner[2],yscale));
+				this.drawQuad(atlas.texture,colour,
+					[x2,yofs],[x2-borderSize,yofs],[x2,yofs+ylen],[x2-borderSize,yofs+ylen],
+					corner[0],corner[3],
+					vec2_lerp(corner[0],corner[1],yscale),vec2_lerp(corner[3],corner[2],yscale));
+				yofs += ylen;
+				yremainder -= ylen;
+			}
+		}
+		return this;
 	},
 	_initShader: function(mvp,program) {
 		gl.useProgram(program);
@@ -529,6 +603,10 @@ UIWindow.prototype = {
 		this.dismiss();
 		return this.modal;
 	},
+	onResize: function(evt) {
+		if(this.ctrl && this.ctrl.onResize)
+			this.ctrl.onResize(evt);
+	},
 	setCtrl: function(ctrl) {
 		this.ctrl = ctrl;
 		this.dirty();
@@ -554,10 +632,9 @@ var UI = {
 				UI.fonts[name] = new UIFont(xml,texture);
 				if(name == "default")
 					UI.defaults.lineHeight = UI.fonts[name].lineHeight;
-				for(var win in UI.windows)
-					win = UI.windows[win].layout();
 				if(callback)
 					callback(UI.fonts[name]);
+				window.setTimeout(Callback(window,window.onresize),0);
 			}
 		};
 		loadFile("image",path+".png",function(arg) {
@@ -628,6 +705,12 @@ var UI = {
 				return true;
 		}
 		return false;
+	},
+	onResize: function(evt) {
+		for(var i=this.windows.length; i-->0; ) {
+			var window = this.windows[i];
+			window.onResize(evt);
+		}
 	},
 	defaults: {
 		hpadding: 5,
@@ -728,6 +811,21 @@ UIComponent.prototype = {
 		}
 	},
 	draw: function(ctx) {},
+	drawBg: function(ctx) {
+		var	border = this.border,
+			margin = border && border.margin? border.margin:
+				border && border.size? border.size/2:
+				Math.min(UI.defaults.hpadding,UI.defaults.vpadding);
+		if(!border || !border.backgroundTile)
+			ctx.fillRoundedRect(border && border.colour? border.colour: this.getBgColour(),
+				border && border.width? border.width: margin,
+				this.x1+margin,this.y1+margin,this.x2-margin,this.y2-margin);
+		if(border && border.atlas && (border.cornerTile||border.sideTile))
+			ctx.drawBorderedRect(border.atlas,border.colour||OPAQUE,this.x1,this.y1,this.x2,this.y2,
+				border.size||margin,border.width||margin,
+				border.cornerTile,border.sideTile,border.backgroundTile);
+		return this;
+	},
 	dirty: function() {
 		if(this.isDirty) return;
 		this.isDirty = true;
@@ -771,7 +869,7 @@ UIComponent.prototype = {
 	},
 	window: function() { return this.parent? this.parent.window(): null; },
 	isMouseInRect: function(evt) {
-		return this._isMouseInRect(evt.clientX-evt.target.offsetLeft,evt.clientY-evt.target.offsetTop);
+		return mousePos && this._isMouseInRect(mousePos[0],mousePos[1]);
 	},
 	isMouseOver: function(pos) {
 		pos = pos || mousePos;
@@ -805,11 +903,19 @@ UIComponent.prototype = {
 		}
 		return !this.allowClickThru;
 	},
+	onResize: function(evt) {
+		for(var child in this.children) {
+			child = this.children[child];
+			if(child && child.onResize)
+				child.onResize(evt);
+		}
+	},
 };
 
 var UILayoutFlow = {
 	layout: function(ctrl) {
 		var	h = 0,
+			margin = ctrl.border? ctrl.border.margin || ctrl.border.size || 0: 0,
 			hpadding = this.hpadding || UI.defaults.hpadding,
 			vpadding = this.vpadding || UI.defaults.vpadding,
 			ipadding = this.ipadding || UI.defaults.ihpadding;
@@ -820,8 +926,8 @@ var UILayoutFlow = {
 			child.setSize(child.preferredSize());
 			h = Math.max(h,child.height());
 		}
-		h += vpadding*2;
-		var x = hpadding;
+		h += vpadding*2 + margin;
+		var x = hpadding + margin;
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
 			if(!child || !child.visible) continue;
@@ -829,23 +935,24 @@ var UILayoutFlow = {
 			x += child.width() + ipadding;
 		}
 		x += (hpadding-ipadding);
-		ctrl.setSize([x,h]);
+		ctrl.setSize([x+margin,h+margin]);
 	},
 };
 
 var UILayoutRows = {
 	layout: function(ctrl) {
 		var	w = 0,
+			margin = ctrl.border? ctrl.border.margin || ctrl.border.size || 0: 0,
 			hpadding = this.hpadding || UI.defaults.hpadding,
 			vpadding = this.vpadding || UI.defaults.vpadding,
 			ipadding = this.ipadding || UI.defaults.ivpadding,
-			h = vpadding;
+			h = vpadding + margin;
 		for(var child in ctrl.children) {
 			child = ctrl.children[child];
 			if(!child || !child.visible) continue;
 			child.performLayout();
 			child.setSize(child.preferredSize());
-			child.setPos([ctrl.x1+hpadding,ctrl.y1+h]);
+			child.setPos([ctrl.x1+hpadding+margin,ctrl.y1+h]);
 			w = Math.max(w,child.width());
 			h += child.height() + ipadding;
 		}
@@ -855,7 +962,7 @@ var UILayoutRows = {
 			if(!child || !child.visible) continue;
 			child.setWidth(w);
 		}
-		ctrl.setSize([w+hpadding*2,h]);
+		ctrl.setSize([w+hpadding*2+margin*2,h+margin]);
 	},
 };
 
@@ -863,14 +970,12 @@ function UIPanel(children,layout) {
 	UIComponent.call(this);
 	this.children = children || this.children;
 	this.layoutManager = layout || this.layoutManager;
+	this.atlas = null;
+	this.cornerTile = this.sideTile = 0;
 }
 UIPanel.prototype = {
 	__proto__: UIComponent.prototype,
-	draw: function(ctx) {
-		var margin = Math.min(UI.defaults.hpadding,UI.defaults.vpadding);
-		ctx.fillRoundedRect(this.getBgColour(),margin,
-			this.x1+margin,this.y1+margin,this.x2-margin,this.y2-margin);
-	},
+	draw: UIComponent.prototype.drawBg,
 	layoutManager: UILayoutFlow,
 };
 
@@ -976,6 +1081,7 @@ UICheckbox.prototype = {
 function UIViewport(view) {
 	UIComponent.call(this);
 	this.view = view;
+	this.viewport = null;
 	this.setViewport();
 }
 UIViewport.prototype = {
@@ -1101,7 +1207,8 @@ UIProperties.prototype = {
 		var font = this.getFont();
 		if(!font)
 			return;
-		var	hpadding = UI.defaults.hpadding,
+		var	margin = this.border? this.border.margin || this.border.size || 0: 0,
+			hpadding = UI.defaults.hpadding,
 			vpadding = UI.defaults.vpadding,
 			ihpadding = UI.defaults.ihpadding + font.em,
 			ivpadding = UI.defaults.ivpadding,
@@ -1112,27 +1219,26 @@ UIProperties.prototype = {
 				k = Math.max(k,font.measureText(key.label)[0]);
 			v = Math.max(v,font.measureText(this._getValue(key))[0]);
 		}
-		var	w = Math.max(font.measureText(this.title)[0],k+ihpadding+v) + hpadding*2,
+		var	w = Math.max(font.measureText(this.title)[0],k+ihpadding+v) + hpadding*2 + margin*2,
 			h = font.lineHeight;
-		h += (h+ivpadding)*this.keys.length + vpadding*2;
+		h += (h+ivpadding)*this.keys.length + vpadding*2 + margin*2;
 		this.keyWidth = k;
 		this.valueWidth = v;
 		this.setSize([w,h]);
 	},
 	draw: function(ctx) {
+		this.drawBg(ctx);
 		var font = this.getFont();
 		if(!font)
 			return;
-		var	hpadding = UI.defaults.hpadding,
+		var	margin = (this.border? this.border.margin || this.border.size || 0: 0) || Math.min(hpadding,vpadding),
+			hpadding = UI.defaults.hpadding,
 			vpadding = UI.defaults.vpadding,
 			ihpadding = UI.defaults.ihpadding + font.em,
 			ivpadding = UI.defaults.ivpadding,
-			margin = Math.min(hpadding,vpadding),
 			bgColour = this.getBgColour(), fgColour = this.getFgColour(),
 			v,
-			x = this.x1+hpadding, y = this.y1+vpadding;
-		ctx.fillRoundedRect(bgColour,margin,
-			this.x1+margin,this.y1+margin,this.x2-margin,this.y2-margin);
+			x = this.x1+hpadding+margin, y = this.y1+vpadding+margin;
 		var tx = x+this.keyWidth+ihpadding*0.5, ty = y+font.lineHeight+ivpadding*0.5;
 		ctx.drawLine(UI.defaults.dividerColour,this.x1+margin,ty,this.x2-margin,ty);
 		ctx.drawLine(UI.defaults.dividerColour,tx,ty,tx,this.y2-margin);

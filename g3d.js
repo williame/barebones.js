@@ -59,9 +59,8 @@ G3D.load = function(filename,readyCallback) {
 			else
 				setTimeout(function() { readyCallback(g3d); },0);
 		}
-	} else {
-		G3D.loaded[filename] = new G3D(filename,readyCallback);
-	}
+	} else
+		g3d = G3D.loaded[filename] = new G3D(filename,readyCallback);
 	return g3d;
 }
 G3D.prototype = {

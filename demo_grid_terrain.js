@@ -485,7 +485,6 @@ DemoGridTerrainMap.prototype = {
 			ofs = (y*this.w+x)*8*6,
 			tileVertices = this.tileVertices,
 			params = tile? tile.getTileAndOrientation(): [0],
-			tile = params[0],
 			tl = params[1]||0,
 			tr = params[2]||0,
 			br = params[3]||0,
@@ -501,7 +500,7 @@ DemoGridTerrainMap.prototype = {
 				tileVertices[ofs++] = normalsMap[y*heightMapStride*3+x*3+1];
 				tileVertices[ofs++] = normalsMap[y*heightMapStride*3+x*3+2];
 				tileVertices[ofs++] = corner;
-				tileVertices[ofs++] = tile;
+				tileVertices[ofs++] = params[0];
 			};
 		emit(x,y+1,tl); emit(x+1,y+1,tr); emit(x,y,bl);
 		emit(x,y,bl); emit(x+1,y+1,tr); emit(x+1,y,br);
@@ -688,12 +687,10 @@ DemoGridTerrainPaint.prototype = {
 	},
 	drawSelector: function(program) {
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.selector);
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,0,0);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,0,0);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,0,0);
-		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,0,0);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,0,0);
+		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,0,0);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0); // noise
-		gl.lineWidth(20);
+		gl.lineWidth(3);
 		gl.drawArrays(gl.LINE_LOOP,0,this.selectorVertices);
 	},
 };

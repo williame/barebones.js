@@ -49,6 +49,7 @@ function game() { //### you replace this!  This is called when the framework has
 			new UILabel("demos"),
 			new UIButton("g3d spider",function() { setDemo(new DemoG3D()); }),
 			new UIButton("grid terrain",function() { setDemo(new DemoGridTerrain()); }),
+			new UIButton("noise explorer",function() { setDemo(new DemoNoiseExplorer()); }),
 		],UILayoutRows));
 	game.menu.ctrl.allowClickThru = false;
 	// intercept layouts so we can ensure we are always bottom-left of the screen
@@ -85,13 +86,13 @@ function onResize(evt) { //### just test code so our demos can resize appropriat
 var gl, canvas, splash, audio, messages, keys = {}, loading = true, mousePos = null, cacheHash, unhandledEventHandler;
 
 function init() {
-	if(!window.Worker) {
-		document.getElementById("errWebWorkers").style.display = "block";
-		return;
-	}
 	canvas = document.getElementById("main-canvas");
 	try {
-		var params = { alpha: false };
+		var params = {
+			alpha: false,
+			premultipliedAlpha: false,
+			stencil: true,
+		};
 		gl = canvas.getContext("webgl",params) || canvas.getContext("experimental-webgl",params);
 	} catch(e) {
 		console.log("Error initializing webGL:",e);
@@ -108,10 +109,7 @@ function init() {
 		evt.preventDefault();
 	},false);
 	window.onerror = function(msg,url,lineno) {
-		console.log("ERROR:",msg,url,lineno);
-		if(fail.error) return;
-		fail.error = true;
-		alert("ERROR "+url+"#"+lineno+"\n"+msg);
+		fail("ERROR "+url+"#"+lineno+"\n"+msg);
 	};
 	if(gl.getSupportedExtensions)
 		console.log("GL Extensions: "+gl.getSupportedExtensions());
@@ -139,6 +137,7 @@ function init() {
 			evt.cancelBubble = true;
 			evt.preventDefault();
 			isMouseDown = true;
+			mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
 			if(evt.target !== canvas)
 				return false;
 			handleEvent("onMouseDown",evt,keys);
@@ -148,9 +147,9 @@ function init() {
 		onMouseMove = function(evt) {
 			evt.cancelBubble = true;
 			evt.preventDefault();
+			mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
 			if(evt.target !== canvas)
 				return;
-			mousePos = [evt.clientX,evt.clientY];
 			handleEvent("onMouseMove",evt,keys,isMouseDown);
 			schedule.run();
 		},
@@ -173,6 +172,7 @@ function init() {
 		onMouseUp = function(evt) {
 			evt.cancelBubble = true;
 			isMouseDown = false;
+			mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
 			if(evt.target !== canvas)
 				return false;
 			handleEvent("onMouseUp",evt,keys);
@@ -182,6 +182,7 @@ function init() {
 		onContextMenu = function(evt) {
 			evt.cancelBubble = true;
 			evt.preventDefault();
+			mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
 			if(evt.target !== canvas)
 				return false;
 			handleEvent("onContextMenu",evt,keys);
@@ -190,6 +191,7 @@ function init() {
 		},
 		onKeyDown = function(evt) {
 			evt.cancelBubble = true;
+			evt.preventDefault();
 			if(!keys[evt.which]) {
 				keys[evt.which] = true;
 				handleEvent("onKeyDown",evt,keys);
@@ -210,8 +212,16 @@ function init() {
 		onMouseWheel = function(evt) {
 			evt.cancelBubble = true;
 			evt.preventDefault();
-			var amount = (evt.detail||(evt.wheelDelta*-0.08));
-			handleEvent("onMouseWheel",evt,amount);
+			mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
+			// http://stackoverflow.com/questions/5527601/normalizing-mousewheel-speed-across-browsers
+			var d = evt.detail, w = evt.wheelDelta;
+			// Normalize delta
+			d = d ? w && (f = w/d) ? d/f : -d/1.35 : w/120;
+			// Quadratic scale if |d| > 1
+			d = d < 1 ? d < -1 ? (-Math.pow(d, 2) - 255) / 255 : d : (Math.pow(d, 2) + 254) / 255;
+			// Delta *should* not be greater than 2...
+			d = Math.min(Math.max(d / 2, -1), 1);
+			handleEvent("onMouseWheel",evt,d*100);
 		};
 	var loaded = Waiter(function() {
 			document.addEventListener("mousedown",onMouseDown,true);
@@ -247,12 +257,13 @@ function init() {
 			// phase2 loading
 			loaded = Waiter(function() {
 					window.focus();
-					window.requestAnimFrame(loop);
+					loading = false; // game can set it to true again if they want to keep splash
 					game();
 			});
 			// these demo files you don't need to load unless you use them:
 			loadFile("javascript","demo_g3d.js",loaded());
 			loadFile("javascript","demo_grid_terrain.js",loaded());
+			loadFile("javascript","demo_noise_explorer.js",loaded());
 		});
 	if(!isOnGithubPages() && !isLocalHost()) {
 		var doc = new XMLHttpRequest();
@@ -264,6 +275,8 @@ function init() {
 	loadFile("javascript","glutil.js",loaded());
 	loadFile("javascript","ui.js",loaded());
 	loadFile("javascript","g3d.js",loaded()); // you don't need to load this if you're not openning G3D files
+	loadFile("javascript","perlin_will.js",loaded());
+	loadFile("javascript","perlin_simplex.js",loaded());
 }
 
 function isOnGithubPages() {
@@ -354,14 +367,13 @@ function loop() {
 		window.requestAnimFrame(loop);
 		schedule.run();
 		if(canvas.width && canvas.height) {
-			if(window.render) {
-				if(window.perf)
-					perf.tick();
+			if(window.perf)
+				perf.tick();
+			if(window.render)
 				render();
-			}
 			UI.draw(canvas);
 			if(splash) {
-				var fade = now()-splash.fade, timeout = 1000;
+				var fade = now()-splash.fade, timeout = 3000;
 				if(fade > timeout)
 					splash = null;
 				else {
@@ -372,10 +384,9 @@ function loop() {
 			}
 		}
 	} catch(e) {
-		fail.error = e;
-		console.log("ERROR:",e);
-		console.log(e.stack||"<no stack>");
-		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+		if(e.stack)
+			console.log("ERROR:",e.stack);
+		fail(e);
 	}
 }
 
@@ -396,10 +407,9 @@ function loadLoop() {
 			splash.draw(canvas,1);
 		}
 	} catch(e) {
-		fail.error = e;
-		console.log("ERROR:",e);
-		console.log(e.stack||"<no stack>");
-		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+		if(e.stack)
+			console.log("ERROR:",e.stack);
+		fail(e);
 	}
 }
 
@@ -709,50 +719,78 @@ schedule.run = function() {
 	}
 };
 
-function inheritsFrom(obj,proto) {
-	while(true) {
-		obj = obj.__proto__ || null;
-		if(!obj)
-			return false;
-		if(obj === proto)
-			return true;
-	}
-}
-
-function WebWorker(scriptFilename) {
-	// thoughts on how to debug web workers welcome; we can't just import them because we don't have namespaces
-	this.scriptFilename = scriptFilename;
+function WebWorker(scriptFilenames,dispatch) {
+	this.scriptFilenames = scriptFilenames; // array of strings, in import order
+	this.dispatch = dispatch; // name of main dispatch function
 	this.worker = null;
 	this.inflight = [];
+	this.synthesised = !window.Worker || window.location.search.indexOf("NoWebWorkers") != -1;
 }
 WebWorker.prototype = {
-	send: function(data,byRef,callback,ctx) {
+	send: function(data,transferrable,callback,ctx) {
 		if(callback)
 			assert(ctx);
-		if(!this.worker) {
-			var self = this, path = this.scriptFilename;
-			if(cacheHash && path.indexOf("_hash=") == -1)
-				path += (path.indexOf("?") == -1? "?": "&") + "_hash="+cacheHash;
-			this.worker = new Worker(path);
-			this.worker.onerror = fail;
-			this.worker.onmessage = function() { self.receive.apply(self,arguments); };
+		if(this.synthesised) {
+			if(!this.worker) {
+				var	self = this,
+					load = function() {
+						if(self.scriptFilenames.length) {
+							loadFile("javascript",self.scriptFilenames.shift(),load);
+						} else {
+							self.dispatch = window[self.dispatch] || fail("bad dispatch: "+self.dispatch);
+							for(var queued in self.queued) {
+								queued = self.queued[queued];
+								try {
+									var ret = self.dispatch.call(self.worker,queued[0]);
+									queued[1].call(queued[2],ret);
+								} catch(error) {
+									fail(error+" "+error.stack);
+								}
+							}
+							self.queued = null;
+						}
+					};
+				this.worker = {};
+				this.queued = [[data,callback,ctx]];
+				load();
+			} else if(this.queueud) {
+				this.queued.push([data,callback,ctx]);
+			} else try {
+				ret = this.dispatch.call(this.worker,data);
+				callback.call(ctx,ret);
+			} catch(error) {
+				fail(error+" "+error.stack);
+			}
+		} else {
+			if(!this.worker) {
+				var self = this, path = "web_worker.js";
+				if(cacheHash && path.indexOf("_hash=") == -1)
+					path += (path.indexOf("?") == -1? "?": "&") + "_hash="+cacheHash;
+				this.worker = new Worker(path);
+				this.worker.onerror = fail;
+				this.worker.onmessage = function() { self.receive.apply(self,arguments); };
+				this.worker.postMessage({
+						cacheHash: cacheHash,
+						scriptFilenames: this.scriptFilenames,
+						dispatch: this.dispatch,
+					});
+			}
+			var args = Array.prototype.slice.call(arguments,4);
+			this.worker.postMessage(data,transferrable||[]);
+			this.inflight.push([callback,ctx,args]);
 		}
-		var args = Array.prototype.slice.call(arguments,4);
-		if(!byRef)
-			this.worker.postMessage(JSON.stringify(data));
-		else
-			this.worker.postMessage(data,[data]);
-		this.inflight.push([callback,ctx,args]);
 	},
 	receive: function(evt) {
+		var data = evt.data;
+		for(var line in data.console)
+			console.log(data.console[line]);
+		if(data.error)
+			fail(data.error);
 		var	callback = this.inflight.shift(),
-			ctx = callback[1], args = callback[2], callback = callback[0],
-			data = evt.data;
-		if(data && data.error)
-			window.onerror(data.error);
-		else if(callback) {
-			if(evt.data)
-				args.unshift(evt.data);
+			ctx = callback[1], args = callback[2], callback = callback[0];
+		if(callback) {
+			if(typeof data.ret !== "undefined")
+				args.unshift(data.ret);
 			callback.apply(ctx,args);
 		}
 	},
