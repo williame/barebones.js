@@ -51,6 +51,7 @@ function DemoNoiseExplorer() {
 		spriteScale: 0,
 		colour: OPAQUE,
 		threshold: 0.6,
+		ambientLight: [1,1,1],
 	};
 	this.w = this.h = this.d = 50; // 50x50x50
 	this.vertices = gl.createBuffer();
@@ -74,7 +75,7 @@ function DemoNoiseExplorer() {
 		"void main() {\n"+
 		"	value = noise;\n"+
 		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-		"	gl_PointSize = (spriteScale*noise*2.0) / gl_Position.w;\n"+
+		"	gl_PointSize = (spriteScale*noise) / gl_Position.w;\n"+
 		"}\n",
 		"precision mediump float;\n"+
 		"uniform sampler2D texture;\n"+
@@ -83,23 +84,17 @@ function DemoNoiseExplorer() {
 		"varying float value;\n"+
 		"void main() {\n"+
 		"	if(value < threshold) discard;\n"+
-		"	vec4 fragColour = texture2D(texture,gl_PointCoord) * colour * value;\n"+
+		"	vec4 fragColour = texture2D(texture,gl_PointCoord) * colour;\n"+
 		"	if(fragColour.a < 0.3) discard;\n"+
+		"	fragColour.rgb *= value;\n"+
 		"	gl_FragColor = fragColour;\n"+
 		"}\n");
 	this.hadMouseDown = false;
 	this.viewMode = "3D"; // can be "3D" or "top"
-	this.menu = new UIWindow(false,new UIPanel([
-			new UILabel("3D noise explorer"),
-			new UIButton("pan",function() { self.setTool("pan"); },"tools|pan"),
-			new UIButton("rotate",function() { self.setTool("rotate"); },"tools|rotate"),
-		],UILayoutRows));
-	this.menu.ctrl.allowClickThru = false;
-	this.tool = null;
 	this.win = new UIWindow(false,this); // a window to host this viewport in
-	this.setTool("rotate");
-	this.grid = new Cubes([1,1,0,1]);
-	this.grid.add(null,[[-this.w/2,-this.h/2,-this.d/2],[this.w/2,this.h/2,this.d/2]]);
+	this.tool = new DemoNoiseExplorerRotate(this);
+	if(this.tool && this.tool.start)
+		this.tool.start();
 }
 DemoNoiseExplorer.prototype = {
 	__proto__: UIViewport.prototype,
@@ -107,22 +102,6 @@ DemoNoiseExplorer.prototype = {
 		// give the GPU something to be doing
 		gl.clearColor(1,1,1,1);
 		gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-		// move viewport?
-		var vx, vz, v, t = now(), mv = this.uniforms.mvMatrix;
-		if(keys[37] && !keys[39]) // left
-			vx = [-mv[0],-mv[4],-mv[8]]; // http://3dengine.org/Right-up-back_from_modelview
-		else if(keys[39] && !keys[37]) // right
-			vx = [mv[0],mv[4],mv[8]];
-		if(keys[38] && !keys[40]) // up
-			vz = this.viewMode == "3D"? [-mv[2],0,-mv[10]]: [mv[1],0,mv[9]];			
-		else if(keys[40] && !keys[38]) // down
-			vz = this.viewMode == "3D"? [mv[2],0,mv[10]]: [-mv[1],0,-mv[9]];
-		v = vx&&vz? vec3_add(vx,vz): vx || vz;
-		if(v) {
-			var elapsed = t - (this.lastRender || t), camera = this.camera;
-			v = vec3_scale(vec3_normalise(v),elapsed*0.025);
-			this.setCamera(vec3_add(camera.eye,v),vec3_add(camera.centre,v),camera.up);
-		}
 		// zooming to be done?
 		if(this.camera.zoomDiff) {
 			var elapsed = t - (this.lastRender || t), camera = this.camera;
@@ -132,14 +111,10 @@ DemoNoiseExplorer.prototype = {
 			this.camera.zoomDiff = 0;
 		}
 		// draw the noise
-		gl.lineWidth = 2;
-		this.grid.draw(this.uniforms,null,gl.LINES);
 		this.program(this._doDraw,this.uniforms,this);
-		//Sphere(3).draw(this.uniforms,this.camera.insphere,[1,1,0,1]);
 		// done
 		if(this.tool && this.tool.draw)
 			this.tool.draw();
-		this.lastRender = t;
 	},
 	_doDraw: function(program) {
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vertices);
@@ -152,27 +127,6 @@ DemoNoiseExplorer.prototype = {
 		gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST);
 	},
-	setTool: function(tool) {
-		if(this.tool && this.tool.stop)
-			this.tool.stop();
-		this.menu.walk(function(ctrl) {
-				if(ctrl.tag && startsWith(ctrl.tag,"tools|")) {
-					ctrl.bgColour = ctrl.tag == "tools|"+tool? [1,0,0,1]: UI.defaults.btn.bgColour;
-					ctrl.dirty();
-				}
-				return true;
-			});
-		if(tool == "pan")
-			this.tool = new DemoNoiseExplorerPan(this);
-		else if(tool == "rotate")
-			this.tool = new DemoNoiseExplorerRotate(this);
-		else if(tool == null)
-			this.tool = null;
-		else
-			fail("bad tool type: "+tool);
-		if(this.tool && this.tool.start)
-			this.tool.start();
-	},
 	setCamera: function(eye,centre,up) {
 		this.camera.centre = centre;
 		this.camera.up = up || [0,1,0];
@@ -184,8 +138,8 @@ DemoNoiseExplorer.prototype = {
 		this.uniforms.invMvpMatrix = mat4_inverse(this.uniforms.mvpMatrix);
 		this.uniforms.invMvMatrix = mat4_inverse(this.uniforms.mvMatrix);
 		this.uniforms.nMatrix = mat4_transpose(this.uniforms.invMvMatrix);
-		this.uniforms.spriteScale = this.height() / (2*Math.tan(0.5*fovy*Math.PI/180.0));
-		this.camera.insphere = getFrustumsInsphere(this.viewport,this.uniforms.invMvpMatrix);
+		this.uniforms.spriteScale = (this.height() / (2*Math.tan(0.5*fovy*Math.PI/180.0))) * 2; // oversize them
+		this.updateCameraMessage();
 	},
 	createVertices: function() {
 		var	w = this.w, h = this.h, d = this.d,
@@ -231,12 +185,18 @@ DemoNoiseExplorer.prototype = {
 					return rnd[i++];
 				}
 			},noiseParams.alpha,noiseParams.beta,noiseParams.n);
-		addMessage(0,null,"noise: alpha:"+noiseParams.alpha.toFixed(2)+", "+
+		addMessage(0,"noise: ",
+			"alpha:"+noiseParams.alpha.toFixed(2)+", "+
 			"beta:"+noiseParams.beta.toFixed(2)+", "+
-			"n:"+noiseParams.n+", "+
-			"threshold:"+this.uniforms.threshold.toFixed(2),
+			"n:"+noiseParams.n,
 			noiseParams);
+		this.updateCameraMessage();
 		this.setPoints();
+	},
+	updateCameraMessage: function() {
+		addMessage(0,"camera: ",
+			"threshold:"+this.uniforms.threshold.toFixed(2),
+			this.camera);
 	},
 	mouseRay: function(evt) {
 		return unproject(evt.clientX,canvas.height-evt.clientY,
@@ -254,22 +214,21 @@ DemoNoiseExplorer.prototype = {
 	show: function() {
 		this.onResize();
 		this.win.show(-1);
-		this.menu.show();
+		addMessage(0,
+			"help: ",
+			"press A, B, N or T to adjust a parameter; try also CTRL, SHIFT",
+			this);
 	},
 	hide: function() {
-		this.menu.hide();
 		this.win.hide();
 		removeMessage(this.noiseParams);
+		removeMessage(this.camera);
+		removeMessage(this);
 	},
 	onResize: function() {
 		this.setPos([0,0]);
 		this.setSize([canvas.width,canvas.height]);
 		this.layout();
-	},
-	layout: function() {
-		this.menu.performLayout();
-		this.menu.ctrl.setPosVisible([canvas.width,canvas.height]); // bottom-right
-		UIViewport.prototype.layout.call(this);
 	},
 	onMouseWheel: function(evt,amount) {
 		if(this.isMouseInRect(evt)) {
@@ -321,10 +280,13 @@ DemoNoiseExplorer.prototype = {
 			break;
 		case 78: // N
 			this.noiseParams.n += 1 * dir;
+			this.noiseParams.n = Math.max(1,this.noiseParams.n);
 			break;
 		case 84: // T
 			this.uniforms.threshold -= 0.05 * dir * scale;
-			break;
+			this.uniforms.threshold = Math.max(0,Math.min(this.uniforms.threshold,1));
+			this.updateCameraMessage();
+			return;
 		default:
 			console.log("down",evt.which);
 			return;
@@ -333,39 +295,9 @@ DemoNoiseExplorer.prototype = {
 	},
 };
 
-function DemoNoiseExplorerPan(view) {
-	assert(this !== window);
-	this.view = view;
-	this.pin = null;
-}
-DemoNoiseExplorerPan.prototype = {
-	onMouseMove: function(evt,keys,isMouseDown) {                                           
-		if(!isMouseDown)
-			return;
-		if(!this.pin)
-			this.pin = evt;
-		else {
-			var	prev = this.view.mousePos(this.pin),
-				pos = this.view.mousePos(evt);
-			if(!prev || !pos)
-				this.pin = null;
-			else {
-				var	moved = vec3_sub(prev,pos),
-					camera = this.view.camera,
-					centre = vec3_add(camera.centre,moved),
-					eye = vec3_add(camera.eye,moved);
-				this.view.setCamera(eye,centre,camera.up);
-				this.pin = evt;
-			}
-		}
-	},
-	onMouseUp: function() {
-		this.pin = null;
-	},
-};
-
 function DemoNoiseExplorerRotate(view) {
-	assert(this !== window);
+	assert(this instanceof DemoNoiseExplorerRotate);
+	assert(view instanceof DemoNoiseExplorer);
 	this.view = view;
 	this.pin = null;
 }

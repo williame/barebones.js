@@ -31,21 +31,35 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 function DemoG3D() {
 	UIViewport.call(this,this);
 	this.win = new UIWindow(false,this); // a window to host this viewport in
-	this.g3d = new G3D("data/test.g3d"); // model to draw
+	this.model = new G3D("data/test.g3d"); // model to draw
 }
 DemoG3D.prototype = {
 	__proto__: UIViewport.prototype,
 	render: function(ctx) {
 		gl.clearColor(0,0,0,0);
 		gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+		if(!this.model.ready) return;
 		var	w = this.width(), h = this.height(),
 			aspect = w/h,
-			zoom = Math.max(w,h)/Math.min(w,h) * 3,
-			uniforms = {
-				pMatrix: createPerspective(60.0,aspect,0.1,zoom*2),
-				mvMatrix: createLookAt([zoom,zoom*0.8,zoom],[0,0,0],[0,1,0]),
-			};
-		this.g3d.draw(uniforms,(now()/1000)%1);
+			zoom = Math.max(w,h)/Math.min(w,h) * 1,
+			pMatrix = createPerspective(60.0,aspect,0.1,100),
+			mvMatrix = createLookAt([1,1,1],[0,0,0],[0,1,0]),
+			bounds = this.model.bounds,
+			size = vec3_sub(bounds[1],bounds[0]);
+		mvMatrix = mat4_multiply(mvMatrix,mat4_scale(1/Math.max.apply(Math,size)));
+		mvMatrix = mat4_multiply(mvMatrix,mat4_translation(vec3_neg(bounds[0])));
+		var uniforms = {
+			pMatrix: pMatrix,
+			mvMatrix: mvMatrix,
+			colour: OPAQUE,
+			fogColour: [0.2,0.2,0.2,1.0],
+			fogDensity: 0.02,
+			lightPos: [1,2,1],
+			lightDir: [-1,-1,-1],
+			ambientLight: [0.8,0.8,0.8],
+		};
+		//Sphere(3).draw(uniforms,[0,0,0,vec3_length(size)/2]);
+		this.model.draw(uniforms,(now()/1000)%1);
 	},
 	show: function() {
 		this.onResize();

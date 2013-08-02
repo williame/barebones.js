@@ -99,7 +99,7 @@ G3D.prototype = {
 			this.meshesLerp.push.apply(this.meshesLerp,this.meshesSingle);
 			this.meshesSingle = [];
 		}
-		this.boundingSphere = vec3_add(this.bounds[0],vec3_scale(vec3_sub(this.bounds[1],this.bounds[0]),0.5));
+		this.boundingSphere = vec3_lerp(this.bounds[0],this.bounds[1],0.5);
 		this.boundingSphere.push(vec3_length(vec3_sub(this.bounds[1],this.bounds[0])));
 		if(reader.ofs != arrayBuffer.byteLength)
 			throw "not all bytes consumed by G3D loader!";
