@@ -120,20 +120,27 @@ G3D.prototype = {
 		if(this.ready && this.readyCallbacks)
 			setTimeout(done,0);
 	},
-	draw: function(uniforms,t) {
+	draw: function(uniforms,t,untextured) {
 		if(!this.ready) return;
 		if(this.meshesSingle.length)
-			programs.standard(this._drawSingle,uniforms,this);
+			programs.standard(this._drawSingle,uniforms,this,untextured);
 		if(this.meshesLerp.length)
-			programs.standardLerp(this._drawLerp,uniforms,this,t||0);
+			programs.standardLerp(this._drawLerp,uniforms,this,t||0,untextured);
 	},
-	_drawSingle: function(program) {
+	_drawSingle: function(program,untextured) {
 		for(var mesh in this.meshesSingle)
-			this.meshesSingle[mesh]._drawSingle(program);
+			this.meshesSingle[mesh]._drawSingle(program,untextured);
 	},
-	_drawLerp: function(program,t) {
+	_drawLerp: function(program,t,untextured) {
 		for(var mesh in this.meshesLerp)
-			this.meshesLerp[mesh]._drawLerp(program,t);
+			this.meshesLerp[mesh]._drawLerp(program,t,untextured);
+	},
+	drawNormals: function(uniforms,t) {
+		if(!this.ready) return;
+		programs.solidFillLerp(function(program) {
+				for(var mesh in this.meshes)
+					this.meshes[mesh]._drawNormals(program,t);
+			},uniforms,this);
 	},
 	lineIntersection: function(lineOrigin,lineDir,t) {
 		var	lineLen = vec3_length(lineDir),
@@ -274,12 +281,12 @@ function G3DMesh(g3d,reader) {
 	}
 }
 G3DMesh.prototype = {
-	_drawSingle: function(program) {
+	_drawSingle: function(program,untextured) {
 		if(this.twoSided)
 			gl.disable(gl.CULL_FACE);
 		else
 			gl.enable(gl.CULL_FACE);
-		gl.bindTexture(gl.TEXTURE_2D,this.texture);
+		gl.bindTexture(gl.TEXTURE_2D,untextured? programs.blankTex: this.texture);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
 		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);			
 		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,3*4,this.vertexCount*3*4);
@@ -289,26 +296,56 @@ G3DMesh.prototype = {
 		gl.drawElements(gl.TRIANGLES,this.indexCount,gl.UNSIGNED_SHORT,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
 	},
-	_drawLerp: function(program,t) {
-		var frame0 = Math.floor(t*this.frameCount),
-			frame1 = (frame0+1)%this.frameCount,
-			lerp = t*this.frameCount - frame0;
+	_drawLerp: function(program,t,untextured) {
+		var frame1 = Math.floor(t*this.frameCount),
+			frame2 = (frame1+1)%this.frameCount,
+			lerp = t*this.frameCount - frame1;
 		gl.uniform1f(program.lerp,lerp);
 		if(this.twoSided)
 			gl.disable(gl.CULL_FACE);
 		else
 			gl.enable(gl.CULL_FACE);
-		gl.bindTexture(gl.TEXTURE_2D,this.texture);
+		gl.bindTexture(gl.TEXTURE_2D,untextured? programs.blankTex: this.texture);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
-		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,(frame0+this.frameCount)*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,(frame1+this.frameCount)*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame0*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4);			
+		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,(frame1+this.frameCount)*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,(frame2+this.frameCount)*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame2*this.vertexCount*3*4);			
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.iVbo);
 		gl.drawElements(gl.TRIANGLES,this.indexCount,gl.UNSIGNED_SHORT,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
+	},
+	_drawNormals: function(program,t) {
+		if(!this.drawNormalsVbo) {
+			this.drawNormalsVbo = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.drawNormalsVbo);
+			var normalsData = new Float32Array(this.frameCount*this.vertexCount*3*2), p = 0;
+			for(var f=0; f<this.frameCount; f++)
+				for(var v=0; v<this.vertexCount; v++) {
+					var n = [0,0,0];
+					for(var i=0; i<3; i++) {
+						normalsData[p*2+i] = this.vnData[p+i];
+						n[i] = this.vnData[this.frameCount*this.vertexCount*3+p+i];
+					}
+					n = vec3_normalise(n);
+					n = vec3_scale(n,0.25);
+					for(var i=0; i<3; i++)
+						normalsData[p*2+3+i] = this.vnData[p+i] + n[i];
+					p += 3;
+				}
+			gl.bufferData(gl.ARRAY_BUFFER,normalsData,gl.STATIC_DRAW);
+		}
+		var frame1 = Math.floor(t*this.frameCount),
+			frame2 = (frame1+1)%this.frameCount,
+			lerp = t*this.frameCount - frame1;
+		gl.uniform1f(program.lerp,lerp);
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.drawNormalsVbo);
+		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4*2);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame2*this.vertexCount*3*4*2);
+		gl.drawArrays(gl.LINES,0,this.vertexCount*2);
+		gl.bindBuffer(gl.ARRAY_BUFFER,null);	
 	},
 	lineIntersection: function(lineOrigin,lineDir,lineSphere,intersects,frame) {
 		if(!sphere_sphere_intersects(this.boundingSphere,lineSphere))

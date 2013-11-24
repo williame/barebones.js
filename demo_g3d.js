@@ -32,6 +32,16 @@ function DemoG3D() {
 	UIViewport.call(this,this);
 	this.win = new UIWindow(false,this); // a window to host this viewport in
 	this.model = new G3D("data/test.g3d"); // model to draw
+	var self = this;
+	this.menu = new UIWindow(false,new UIPanel([
+			new UILabel("g3d demo"),
+			new UIButton("show normals",function() { self.showNormals = !self.showNormals; }),
+			new UIButton("auto normals",function() { self.model.autoNormals(); }),
+		],UILayoutRows));
+	this.menu.ctrl.allowClickThru = false;
+	loadFile("image","data/opaque.png",function(tex) {
+		programs.blankTex = tex;
+	});
 }
 DemoG3D.prototype = {
 	__proto__: UIViewport.prototype,
@@ -43,30 +53,50 @@ DemoG3D.prototype = {
 			aspect = w/h,
 			zoom = Math.max(w,h)/Math.min(w,h) * 1,
 			pMatrix = createPerspective(60.0,aspect,0.1,100),
-			mvMatrix = createLookAt([1,1,1],[0,0,0],[0,1,0]),
+			mMatrix = createLookAt([0,2,2],[0,0,0],[0,1,0]),
 			bounds = this.model.bounds,
 			size = vec3_sub(bounds[1],bounds[0]);
-		mvMatrix = mat4_multiply(mvMatrix,mat4_scale(1/Math.max.apply(Math,size)));
-		mvMatrix = mat4_multiply(mvMatrix,mat4_translation(vec3_neg(bounds[0])));
+		var lightPos = mat4_vec3_multiply(mMatrix,[0,3,2]);
+		var vMatrix = mat4_multiply(mMatrix,mat4_scale(1/Math.max.apply(Math,size)));
+		vMatrix = mat4_multiply(vMatrix,mat4_translation(vec3_neg(bounds[0])));
 		var uniforms = {
 			pMatrix: pMatrix,
-			mvMatrix: mvMatrix,
+			mvMatrix: mat4_multiply(vMatrix,mat4_rotation(now()/1000,[0,1,0])),
 			colour: OPAQUE,
 			fogColour: [0.2,0.2,0.2,1.0],
 			fogDensity: 0.02,
-			lightPos: [1,2,1],
-			lightDir: [-1,-1,-1],
-			ambientLight: [0.8,0.8,0.8],
+			lightPos: lightPos,
+			lightColour: this.showNormals? [1,0,0,1]: [1,1,1,1],
+			ambientLight: this.showNormals? [0,1,0,1]: [0.2,0.2,0.2,1],
+			diffuseLight: [0.8,0.8,0.8,1],
+			specularLight: [0,0,0.2,1],
 		};
 		//Sphere(3).draw(uniforms,[0,0,0,vec3_length(size)/2]);
-		this.model.draw(uniforms,(now()/1000)%1);
+		var t = (now()/1000)%1;
+		if(this.showNormals) {
+			this.model.draw(uniforms,t,true);
+			gl.lineWidth(1.0);
+			this.model.drawNormals(uniforms,t);
+			Sphere(2).draw({
+					__proto__: uniforms,
+					mvMatrix: mMatrix,
+				},vec3_vec4(lightPos,0.2),[0.8,0.7,0,1.0]);
+		} else
+			this.model.draw(uniforms,t);
 	},
 	show: function() {
 		this.onResize();
 		this.win.show(-1);
+		this.menu.show();
 	},
 	hide: function() {
 		this.win.hide();
+		this.menu.hide();
+	},
+	layout: function() {
+		this.menu.performLayout();
+		this.menu.ctrl.setPosVisible([canvas.width,canvas.height]); // bottom-right
+		UIViewport.prototype.layout.call(this);
 	},
 	onResize: function() {
 		this.setPos([0,0]);

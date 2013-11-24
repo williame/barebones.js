@@ -150,16 +150,27 @@ function Program(vertexShader,fragmentShader) {
 					set.call(gl,location,false,value);
 				else
 					set.call(gl,location,value);
-			} else if(name == "mvp") {
+			} else switch(name) {
+			case "mvp":
 				set.call(gl,i,false,mat4_multiply(uniforms.pMatrix,uniforms.mvMatrix));
-			} else if(name == "nMatrix") {
+				break;
+			case "nMatrix":
 				var nMatrix = mat4_transpose(uniforms.mvMatrix);
 				if(set === gl.uniformMatrix3fv)
 					set.call(gl,location,false,mat4_mat3(nMatrix));
 				else
 					set.call(gl,location,false,nMatrix);
-			} else if(name == "texture")
+				break;
+			case "texture":
 				gl.uniform1i(location,0);
+				break;
+			case "aspectRatio":
+				var viewport = gl.getParameter(gl.VIEWPORT);
+				gl.uniform1f(location,viewport[1]/viewport[3]);
+				break;
+			default:
+				console.log("uniform "+name+" not set");
+			}
 		}
 		if("texture" in program)
 			gl.bindTexture(gl.TEXTURE_2D,uniforms.texture||programs.blankTex);
@@ -1250,7 +1261,33 @@ function vec2_scale(v,f) {
 }
 
 var programs = gl? {
-	blankTex: createTexture(null,1,1,new Uint8Array([255,255,255,255])),
+	blankTex: gl.createTexture(),
+	solidFill: Program(
+		"precision mediump float;\n"+
+		"attribute vec3 vertex;\n"+
+		"uniform mat4 mvMatrix, pMatrix;\n"+
+		"void main() {\n"+
+		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"}\n",
+		"precision mediump float;\n"+
+		"uniform vec4 colour;\n"+
+		"void main() {\n"+
+		"	gl_FragColor = colour;\n"+
+		"}\n"),
+	solidFillLerp: Program(
+		"precision mediump float;\n"+
+		"attribute vec3 vertex1, vertex2;\n"+
+		"uniform float lerp;\n"+
+		"uniform mat4 mvMatrix, pMatrix;\n"+
+		"void main() {\n"+
+		"	vec3 vertex = mix(vertex1,vertex2,lerp);\n"+
+		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"}\n",
+		"precision mediump float;\n"+
+		"uniform vec4 colour;\n"+
+		"void main() {\n"+
+		"	gl_FragColor = colour;\n"+
+		"}\n"),
 	standard: Program(
 		"precision mediump float;\n"+
 		"varying vec2 texel;\n"+
@@ -1287,25 +1324,27 @@ var programs = gl? {
 	standardLerp: Program(
 		"precision mediump float;\n"+
 		"varying vec2 texel;\n"+
-		"varying lowp vec3 lighting;\n"+
+		"varying lowp vec3 normal, eye, lightDir;\n"+
 		"uniform float lerp;\n"+
 		"attribute vec3 vertex1, vertex2;\n"+
 		"attribute vec3 normal1, normal2;\n"+
 		"attribute vec2 texCoord;\n"+
 		"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
-		"uniform lowp vec3 lightDir, ambientLight, lightColour;\n"+
+		"uniform lowp vec3 lightPos;\n"+
 		"void main() {\n"+
-		"	vec3 normal = mix(normal1,normal2,lerp);\n"+
-		"	vec3 transformed = normalize(nMatrix * vec4(normal,0.0)).xyz;\n"+
-		"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
-		"	lighting = ambientLight + (lightColour*directional);\n"+
-		"	texel = texCoord;\n"+
+		"	normal = normalize(nMatrix * vec4(mix(normal1,normal2,lerp),0.0)).xyz;\n"+
 		"	vec3 vertex = mix(vertex1,vertex2,lerp);\n"+
-		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"	vec4 pos = mvMatrix * vec4(vertex,1.0);\n"+
+		"	eye = -pos.xyz;\n"+
+		"	lightDir = lightPos + eye;\n"+
+		"	texel = texCoord;\n"+
+		"	gl_Position = pMatrix * pos;\n"+
 		"}\n",
 		"precision mediump float;\n"+
 		"varying vec2 texel;\n"+
-		"varying lowp vec3 lighting;\n"+
+		"varying lowp vec3 normal, eye, lightDir;\n"+
+		"uniform lowp vec4 ambientLight, diffuseLight, specularLight;\n"+
+		"uniform float shininess;\n"+
 		"uniform sampler2D texture;\n"+
 		"uniform lowp vec4 colour;\n"+
 		"uniform float fogDensity;\n"+
@@ -1317,10 +1356,29 @@ var programs = gl? {
 		"	fogFactor = clamp(fogFactor,0.0,1.0);\n"+
 		"	vec4 fragColour = texture2D(texture,texel) * colour;\n"+
 		"	if(fragColour.a < 0.1) discard;\n"+
-		"	fragColour.rgb *= lighting;\n"+
+		"	vec4 spec = vec4(0.0);\n"+
+		"	vec3 n = normalize(normal);\n"+
+		"	vec3 l = normalize(lightDir);\n"+
+		"	vec3 e = normalize(eye);\n"+
+		"	float intensity = max(dot(n,l), 0.0);\n"+
+		"	if (intensity > 0.0) {\n"+
+		"		vec3 h = normalize(l + e);\n"+
+		"		float intSpec = max(dot(h,n), 0.0);\n"+
+		"		spec = specularLight * pow(intSpec, shininess);\n"+
+		"	}\n"+
+		"	fragColour *= max(intensity * diffuseLight + spec, ambientLight);\n"+
 		"	gl_FragColor = mix(fogColour,fragColour,fogFactor);\n"+
 		"}\n"),
 }: null;
+
+if(programs) { // had problems using texture generated from buffer with ATI cards; so force load of an white png
+	var image = new Image();
+	image.onerror = fail;
+	image.onload = function() {
+		createTexture(programs.blankTex,null,null,image);
+	};
+	image.src = "data/opaque.png";
+}
 
 function emitCube(blf,trb,array,ofs) {
 	ofs = ofs || 0;
