@@ -170,7 +170,12 @@ function Program(vertexShader,fragmentShader) {
 				gl.uniform1f(location,viewport[1]/viewport[3]);
 				break;
 			default:
-				console.log("uniform "+name+" not set");
+				var error = "uniform "+name+" not set";
+				if(!program._errors) program._errors = {};
+				if(!(error in program._errors)) { // suppress logging each and every time
+					program._errors[error] = 1;
+					console.log("WARNING!",error);
+				}
 			}
 		}
 		if("texture" in program)

@@ -770,8 +770,9 @@ var UI = {
 			from: [0.8,1,0.8,1],
 			text: [0.2,0.2,0.2,1],
 		},
-		bgColour: [0.3,0.2,0.2,0.5],
 		fgColour: [1.0,0.0,0.5,1.0],
+		bgColour: [0.3,0.2,0.2,0.5],
+		bgColourActive: [1,0,0,1],
 		dividerColour: [0.9,0.9,0.9,0.5],
 		lineHeight: 13,
 		spacerHeight: 3,
@@ -1157,6 +1158,131 @@ UIViewport.prototype = {
 	setSize: function(size) {
 		UIComponent.prototype.setSize.call(this,size);
 		this.setViewport();
+	},
+};
+
+UIViewport.ToolPan = function(view) {
+	assert(this instanceof UIViewport.ToolPan);
+	assert(view instanceof UIViewport);
+	this.view = view;
+	this.pin = null;
+}
+UIViewport.ToolPan.prototype = {
+	name: "Pan",
+	onMouseMove: function(evt,keys,isMouseDown) {                                           
+		if(!isMouseDown)
+			return;
+		if(!this.pin)
+			this.pin = evt;
+		else {
+			var	prev = this.view.mousePos(this.pin),
+				pos = this.view.mousePos(evt);
+			if(!prev || !pos)
+				this.pin = null;
+			else {
+				var	moved = vec3_sub(prev,pos),
+					camera = this.view.camera,
+					centre = vec3_add(camera.centre,moved),
+					eye = vec3_add(camera.eye,moved);
+				this.view.setCamera(eye,centre,camera.up);
+				this.pin = evt;
+			}
+		}
+	},
+	onMouseUp: function() {
+		this.pin = null;
+	},
+};
+
+UIViewport.ToolRotate = function(view) {
+	assert(this instanceof UIViewport.ToolRotate);
+	assert(view instanceof UIViewport);
+	this.view = view;
+	this.pin = null;
+}
+UIViewport.ToolRotate.prototype = {
+	name: "Rotate",
+	onMouseDown: function(evt,keys) {
+		this.pin = null;
+		var pos = this.view.mousePos(evt);
+		if(pos) {
+			var n = vec3_sub(this.view.camera.centre,pos);
+			this.pin = Math.atan2(n[2],n[0]);
+		}
+	},
+	onMouseMove: function(evt,keys,isMouseDown) {
+		if(!isMouseDown)
+			return;
+		if(!this.pin) {
+			this.onMouseDown(evt,keys);
+			return;
+		}
+		var pos = this.view.mousePos(evt);
+		if(!pos) return;
+		var	camera = this.view.camera,
+			n = vec3_sub(camera.centre,pos),
+			angle = Math.atan2(n[2],n[0]);
+		if(this.view.viewMode == "3D") {
+			var eye = vec3_rotate(vec3_sub(camera.eye,camera.centre),
+				(angle-this.pin),
+				[0,0,0],
+				camera.up);
+			this.view.setCamera(vec3_add(camera.centre,eye),camera.centre,camera.up);
+		} else if(this.view.viewMode == "top") {
+			var up = vec3_rotate(camera.up,
+				(angle-this.pin),
+				[0,0,0],
+				vec3_sub(camera.eye,camera.centre));
+			this.view.setCamera(camera.eye,camera.centre,vec3_normalise(up));
+		} else
+			fail("rotate doesn't support view mode: "+this.view.viewMode);
+	},
+	onMouseUp: function() {
+		this.pin = null;
+	},
+};
+
+function UIChoiceMenu(title,tools,view) {
+	assert(this instanceof UIChoiceMenu);
+	assert(view instanceof UIViewport);
+	this.tools = tools;
+	this.view = view;
+	var self = this, rows = [];
+	if(title) rows.push(new UILabel(title));
+	for(var tool in tools) {
+		tool = tools[tool];
+		var name = tool.prototype.name;
+		assert(name);
+		rows.push(new UIButton(name,(function(name) { return function() { self.setTool(name); }; })(name),"tools|"+name));
+	}
+	UIPanel.call(this,rows,UILayoutRows);
+}
+UIChoiceMenu.prototype = {
+	__proto__: UIPanel.prototype,
+	setTool: function(name) {
+		console.log("set tool:",name);
+		if(this.view.tool) {
+			if(this.view.tool.name == name)
+				return;
+			if(this.view.tool.stop)
+				this.view.tool.stop();
+			this.view.tool = null;
+		}
+		this.window().walk(function(ctrl) {
+				if(ctrl.tag && startsWith(ctrl.tag,"tools|")) {
+					ctrl.bgColour = ctrl.tag == "tools|"+name? UI.defaults.btn.bgColorActive: UI.defaults.btn.bgColour;
+					ctrl.dirty();
+				}
+				return true;
+			});
+		for(var t in this.tools)
+			if(this.tools[t].prototype.name == name) {
+				this.view.tool = new this.tools[t](this.view);
+				break;
+			}
+		assert(this.view.tool,"bad tool type: "+name);
+		if(this.view.tool.start)
+			this.view.tool.start();
 	},
 };
 

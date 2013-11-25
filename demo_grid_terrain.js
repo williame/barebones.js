@@ -52,13 +52,9 @@ function DemoGridTerrain() {
 	this.minZoom = 10;
 	this.maxZoom = 30;
 	this.viewMode = "3D"; // can be "3D" or "top"
-	this.menu = new UIWindow(false,new UIPanel([
-			new UILabel("grid terrain demo"),
-			new UIButton("show grid",function() { self.map.showGridLines = !self.map.showGridLines; }),
-			new UIButton("pan",function() { self.setTool("pan"); },"tools|pan"),
-			new UIButton("rotate",function() { self.setTool("rotate"); },"tools|rotate"),
-			new UIButton("paint",function() { self.setTool("paint"); },"tools|paint"),
-			new UIButton("3D",function() {
+	var menu = new UIChoiceMenu("grid terrain demo",[UIViewport.ToolPan,UIViewport.ToolRotate,DemoGridTerrainPaint],this);
+	menu.addChild(new UIButton("show grid",function() { self.map.showGridLines = !self.map.showGridLines; }));
+	menu.addChild(new UIButton("3D",function() {
 					if(self.viewMode == "3D") {
 						self.viewMode = "top";
 						self.setCamera(null,self.camera.centre);
@@ -69,12 +65,12 @@ function DemoGridTerrain() {
 						fail("unsupported view mode: "+self.viewMode);
 					this.setText(self.viewMode);
 					this.dirty();
-			}),
-		],UILayoutRows));
+			}));
+	this.menu = new UIWindow(false,menu,UILayoutRows);
 	this.menu.ctrl.allowClickThru = false;
 	this.tool = null;
 	this.win = new UIWindow(false,this); // a window to host this viewport in
-	this.setTool("paint");
+	menu.setTool("Paint");
 }
 DemoGridTerrain.prototype = {
 	__proto__: UIViewport.prototype,
@@ -112,29 +108,6 @@ DemoGridTerrain.prototype = {
 			this.tool.draw();
 		this.lastRender = t;
 		
-	},
-	setTool: function(tool) {
-		if(this.tool && this.tool.stop)
-			this.tool.stop();
-		this.menu.walk(function(ctrl) {
-				if(ctrl.tag && startsWith(ctrl.tag,"tools|")) {
-					ctrl.bgColour = ctrl.tag == "tools|"+tool? [1,0,0,1]: UI.defaults.btn.bgColour;
-					ctrl.dirty();
-				}
-				return true;
-			});
-		if(tool == "pan")
-			this.tool = new DemoGridTerrainPan(this);
-		else if(tool == "rotate")
-			this.tool = new DemoGridTerrainRotate(this);
-		else if(tool == "paint")
-			this.tool = new DemoGridTerrainPaint(this);
-		else if(tool == null)
-			this.tool = null;
-		else
-			fail("bad tool type: "+tool);
-		if(this.tool && this.tool.start)
-			this.tool.start();
 	},
 	setCamera: function(eye,centre,up) {
 		if(centre[0] < 0 || centre[0] > this.map.w || centre[2] < 0 || centre[2] > this.map.h) // keep centre on map
@@ -554,83 +527,6 @@ DemoGridTerrainMap.prototype = {
 	},
 };
 
-function DemoGridTerrainPan(view) {
-	assert(this !== window);
-	this.view = view;
-	this.pin = null;
-}
-DemoGridTerrainPan.prototype = {
-	onMouseMove: function(evt,keys,isMouseDown) {                                           
-		if(!isMouseDown)
-			return;
-		if(!this.pin)
-			this.pin = evt;
-		else {
-			var	prev = this.view.mousePos(this.pin),
-				pos = this.view.mousePos(evt);
-			if(!prev || !pos)
-				this.pin = null;
-			else {
-				var	moved = vec3_sub(prev,pos),
-					camera = this.view.camera,
-					centre = vec3_add(camera.centre,moved),
-					eye = vec3_add(camera.eye,moved);
-				this.view.setCamera(eye,centre,camera.up);
-				this.pin = evt;
-			}
-		}
-	},
-	onMouseUp: function() {
-		this.pin = null;
-	},
-};
-
-function DemoGridTerrainRotate(view) {
-	assert(this !== window);
-	this.view = view;
-	this.pin = null;
-}
-DemoGridTerrainRotate.prototype = {
-	onMouseDown: function(evt,keys) {
-		this.pin = null;
-		var pos = this.view.mousePos(evt);
-		if(pos) {
-			var n = vec3_sub(this.view.camera.centre,pos);
-			this.pin = Math.atan2(n[2],n[0]);
-		}
-	},
-	onMouseMove: function(evt,keys,isMouseDown) {
-		if(!isMouseDown)
-			return;
-		if(!this.pin) {
-			this.onMouseDown(evt,keys);
-			return;
-		}
-		var pos = this.view.mousePos(evt);
-		if(!pos) return;
-		var	camera = this.view.camera,
-			n = vec3_sub(camera.centre,pos),
-			angle = Math.atan2(n[2],n[0]);
-		if(this.view.viewMode == "3D") {
-			var eye = vec3_rotate(vec3_sub(camera.eye,camera.centre),
-				(angle-this.pin),
-				[0,0,0],
-				camera.up);
-			this.view.setCamera(vec3_add(camera.centre,eye),camera.centre,camera.up);
-		} else if(this.view.viewMode == "top") {
-			var up = vec3_rotate(camera.up,
-				(angle-this.pin),
-				[0,0,0],
-				vec3_sub(camera.eye,camera.centre));
-			this.view.setCamera(camera.eye,camera.centre,vec3_normalise(up));
-		} else
-			fail("rotate doesn't support view mode: "+this.view.viewMode);
-	},
-	onMouseUp: function() {
-		this.pin = null;
-	},
-};
-
 function DemoGridTerrainPaint(view) {
 	assert(this !== window);
 	this.view = view;
@@ -640,6 +536,7 @@ function DemoGridTerrainPaint(view) {
 	this.pos = null;
 }
 DemoGridTerrainPaint.prototype = {
+	name: "Paint",
 	onMouseDown: function(evt,keys) {
 		this.onMouseMove(evt,keys,true);
 	},
