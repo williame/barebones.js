@@ -42,6 +42,7 @@ body { border:0px;margin:0px;padding:0px; background-color: black; color: white;
 .error { background: yellow; color: red; margin: 2px; padding: 2px; }
 #main-canvas { width:100%; height:100%;border:0px;margin:0px;padding:0px; }
 </style>
+<script type="text/javascript" src="web_worker.js"></script>
 <script type="text/javascript">
 
 function game() { //### you replace this!  This is called when the framework has finished loading
@@ -83,7 +84,7 @@ function onResize(evt) { //### just test code so our demos can resize appropriat
 
 // framework code follows:
 
-var gl, canvas, splash, audio, messages, keys = {}, loading = true, mousePos = null, cacheHash, unhandledEventHandler;
+var gl, canvas, splash, audio, keys = {}, loading = true, mousePos = [-1,-1], cacheHash, unhandledEventHandler;
 
 function init() {
 	canvas = document.getElementById("main-canvas");
@@ -109,16 +110,19 @@ function init() {
 		evt.preventDefault();
 	},false);
 	window.onerror = function(msg,url,lineno) {
-		fail("ERROR "+url+"#"+lineno+"\n"+msg);
+		if(!fail.error)
+			fail("ERROR "+url+"#"+lineno+"\n"+msg);
+		else
+			console.log("ERROR "+url+"#"+lineno+"\n"+msg);
 	};
 	if(gl.getSupportedExtensions)
 		console.log("GL Extensions: "+gl.getSupportedExtensions());
 	var handleEvent = function(name) {
 		var args = Array.prototype.slice.call(arguments,1);
 		(window.UI && name in UI && UI[name].apply(UI,args)) ||
-		(unhandledEventHandler && name in unhandledEventHandler &&
-			unhandledEventHandler[name].apply(unhandledEventHandler,args)) ||
-		(name in window && window[name].apply(window,args));
+			(unhandledEventHandler && name in unhandledEventHandler &&
+				unhandledEventHandler[name].apply(unhandledEventHandler,args)) ||
+			(name in window && window[name].apply(window,args));
 	};
 	window.onresize = function(evt) {
   		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
@@ -224,17 +228,17 @@ function init() {
 			handleEvent("onMouseWheel",evt,d*100);
 		};
 	var loaded = Waiter(function() {
-			document.addEventListener("mousedown",onMouseDown,true);
-			document.addEventListener("mouseup",onMouseUp,true);
-			document.addEventListener("mousemove",onMouseMove,true);
-			document.addEventListener("mouseover",onMouseOver,true);
-			document.addEventListener("mouseout",onMouseOut,true);
-			document.addEventListener("mousewheel",onMouseWheel,true); //chrome
-			document.addEventListener("DOMMouseScroll",onMouseWheel,true); //FF
-			document.addEventListener("contextmenu",onContextMenu,true);
+			canvas.addEventListener("mousedown",onMouseDown,true);
+			canvas.addEventListener("mouseup",onMouseUp,true);
+			canvas.addEventListener("mousemove",onMouseMove,true);
+			canvas.addEventListener("mouseover",onMouseOver,true);
+			canvas.addEventListener("mouseout",onMouseOut,true);
+			canvas.addEventListener("mousewheel",onMouseWheel,true); //chrome
+			canvas.addEventListener("DOMMouseScroll",onMouseWheel,true); //FF
+			canvas.addEventListener("contextmenu",onContextMenu,true);
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
-			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
+			canvas.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
 			window.focus();
 			// splash
 			var splashCtrl = new UIComponent();
@@ -265,7 +269,7 @@ function init() {
 			loadFile("javascript","demo_grid_terrain.js",loaded());
 			loadFile("javascript","demo_noise_explorer.js",loaded());
 		});
-	if(!isOnGithubPages() && !isLocalHost()) {
+	if(!isOnGithubPages() && !isLocalHost() && window.location.pathname.indexOf("/branch/")==-1) {
 		var doc = new XMLHttpRequest();
 		doc.open("POST","/api/get_hash",false);
 		doc.send();
@@ -303,60 +307,22 @@ function drawLogo(ctx,alpha) {
 	}
 }
 
-function addMessage(secs,from,text,tag) {
-	var 	f = from? new UILabel(from): null,
-		message = new UIPanel(f?[f,new UILabel(text)]:[new UILabel(text)]);
-	message.bgColour = UI.defaults.messages.text;
-	message.tag = tag;
-	if(f) f.fgColour = UI.defaults.messages.from;
-	if(!messages) {
-		messages = new UIWindow(false,new UIPanel([],UILayoutRows),"messages");
-		messages.show();
-	}
-	var old = tag? getMessage(tag): null;
-	if(old) {
-		old.parent.replaceChild(old,message);
-		if(old.dismisser) clearTimeout(old.dismisser);
-	} else
-		messages.ctrl.addChild(message);
-	if(secs) message.dismisser = setTimeout(function() { message.destroy(); },secs*1000);
-}
-
-function getMessage(tag) {
-	if(messages)
-		for(var message in messages.ctrl.children) {
-			message = messages.ctrl.children[message];
-			if(message.tag == tag)
-				return message;
-		}
-	return null;
-}
-
-function removeMessage(tag) {
-	var message = getMessage(tag);
-	if(message) message.destroy();
-	return message != null;
-}
-
-function isUndefined(o) { return typeof(o) === "undefined"; }
-function isDefined(o) { return typeof(o) !== "undefined"; }
-
-function assert(condition) {
-	if(!condition)
-		fail("ASSERTION FAILED\n"+(Array.prototype.slice.call(arguments,1)||"an error occurred"));
-}
-
-function fail(msg) {
-	fail.error = new Error(msg);
-	throw fail.error;
-}
-
 function startsWith(str,prefix) {
 	return str.indexOf(prefix) == 0;
 }
 
 function endsWith(str,suffix) {
 	return str.indexOf(suffix,str.length-suffix.length) !== -1;
+}
+
+function arrayEquals(a,b) {
+	if(!a || !b) return false;
+	assert(a instanceof Array);
+	assert(b instanceof Array);
+	if(a.length != b.length) return false;
+	for(var i=a.length; i-->0; )
+		if(a[i] != b[i]) return false;
+	return true;
 }
 
 function now() { return (new Date()).getTime(); }
@@ -493,10 +459,10 @@ function loadFile(type,path,callback) {
 	loadFile.loading[key] = callback?[[callback,args]]:[];
 	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
 	loadFile.loadingWait = setTimeout(function() {
-		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
 		console.log("awaiting load of:",loadFile.loading);
+		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
 		if(splash) splash.dirty();
-	},3000);
+	},10*1000);
 	var	fail = Callback(null,function(e) { window.onerror("failed to load",type,path); }),
 		done = function(arg) {
 			console.log("loaded",key);
@@ -588,7 +554,7 @@ loadFile.loaded = [];
 
 // Data Views are not widely supported in HTML5 browsers yet, so we roll our own and we're happy with it
 function BinaryDataReader(arrayBuffer) {
-	assert(this !== window);
+	assert(this instanceof BinaryDataReader);
 	this.array = arrayBuffer;
 	this.buffer = new Uint8Array(arrayBuffer);
 	this.len = arrayBuffer.byteLength;
@@ -719,83 +685,6 @@ schedule.run = function() {
 	}
 };
 
-function WebWorker(scriptFilenames,dispatch) {
-	this.scriptFilenames = scriptFilenames; // array of strings, in import order
-	this.dispatch = dispatch; // name of main dispatch function
-	this.worker = null;
-	this.inflight = [];
-	this.synthesised = !window.Worker || window.location.search.indexOf("NoWebWorkers") != -1;
-}
-WebWorker.prototype = {
-	send: function(data,transferrable,callback,ctx) {
-		if(callback)
-			assert(ctx);
-		if(this.synthesised) {
-			if(!this.worker) {
-				var	self = this,
-					load = function() {
-						if(self.scriptFilenames.length) {
-							loadFile("javascript",self.scriptFilenames.shift(),load);
-						} else {
-							self.dispatch = window[self.dispatch] || fail("bad dispatch: "+self.dispatch);
-							for(var queued in self.queued) {
-								queued = self.queued[queued];
-								try {
-									var ret = self.dispatch.call(self.worker,queued[0]);
-									queued[1].call(queued[2],ret);
-								} catch(error) {
-									fail(error+" "+error.stack);
-								}
-							}
-							self.queued = null;
-						}
-					};
-				this.worker = {};
-				this.queued = [[data,callback,ctx]];
-				load();
-			} else if(this.queueud) {
-				this.queued.push([data,callback,ctx]);
-			} else try {
-				ret = this.dispatch.call(this.worker,data);
-				callback.call(ctx,ret);
-			} catch(error) {
-				fail(error+" "+error.stack);
-			}
-		} else {
-			if(!this.worker) {
-				var self = this, path = "web_worker.js";
-				if(cacheHash && path.indexOf("_hash=") == -1)
-					path += (path.indexOf("?") == -1? "?": "&") + "_hash="+cacheHash;
-				this.worker = new Worker(path);
-				this.worker.onerror = fail;
-				this.worker.onmessage = function() { self.receive.apply(self,arguments); };
-				this.worker.postMessage({
-						cacheHash: cacheHash,
-						scriptFilenames: this.scriptFilenames,
-						dispatch: this.dispatch,
-					});
-			}
-			var args = Array.prototype.slice.call(arguments,4);
-			this.worker.postMessage(data,transferrable||[]);
-			this.inflight.push([callback,ctx,args]);
-		}
-	},
-	receive: function(evt) {
-		var data = evt.data;
-		for(var line in data.console)
-			console.log(data.console[line]);
-		if(data.error)
-			fail(data.error);
-		var	callback = this.inflight.shift(),
-			ctx = callback[1], args = callback[2], callback = callback[0];
-		if(callback) {
-			if(typeof data.ret !== "undefined")
-				args.unshift(data.ret);
-			callback.apply(ctx,args);
-		}
-	},
-};
-
 function Callback(self,callback) {
 	var args = arguments.length > 2? Array.prototype.slice.call(arguments,3): null;
 	return function() {
@@ -819,6 +708,7 @@ window.requestAnimFrame =
 <body onload="init()">
 <div id="errWebWorkers" class="error" style="display: none;">Sorry, your browser does not support HTML5 web workers</div>
 <div id="errWebGL" class="error" style="display: none;">Sorry, could not initialize webGL</div>
+<div id="error" class="error" style="display:none;"></div>
 <noscript>
 <div class="error">Sorry, you don't have Javascript enabled :(</div>
 </noscript>

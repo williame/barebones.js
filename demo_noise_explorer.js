@@ -63,6 +63,7 @@ function DemoNoiseExplorer() {
 		beta: 2,
 		n: 4,
 	};
+	this.generator = SimplexNoise;
 	this.setNoise();
 	loadFile("image","data/circle.png",function(tex) { self.uniforms.texture = tex; });
 	this.program = Program(
@@ -95,6 +96,13 @@ function DemoNoiseExplorer() {
 	this.tool = new DemoNoiseExplorerRotate(this);
 	if(this.tool && this.tool.start)
 		this.tool.start();
+	var self = this;
+	this.menu = new UIWindow(false,new UIPanel([
+			new UILabel("noise generator"),
+			new UIButton("Will's configurable",function() { self.generator = PerlinNoiseWill; self.setNoise(); }),
+			new UIButton("Simplex baked",function() { self.generator = SimplexNoise; self.setNoise(); }),
+		],UILayoutRows));
+	this.menu.ctrl.allowClickThru = false;
 }
 DemoNoiseExplorer.prototype = {
 	__proto__: UIViewport.prototype,
@@ -174,18 +182,18 @@ DemoNoiseExplorer.prototype = {
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.noiseBuffer);
 		gl.bufferData(gl.ARRAY_BUFFER,buf,gl.STATIC_DRAW);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
-		console.log("min",Math.min.apply(Math,buf),"max",Math.max.apply(Math,buf));
+		//console.log("min",Math.min.apply(Math,buf),"max",Math.max.apply(Math,buf)); // stack overflow sometimes
 	},
 	setNoise: function() {
 		var i = 0, noiseParams = this.noiseParams, rnd = noiseParams.rnd;
-		this.noise = new PerlinNoiseWill({
+		this.noise = new this.generator({
 				random: function() {
 					if(i==rnd.length)
 						rnd.push(Math.random());
 					return rnd[i++];
 				}
 			},noiseParams.alpha,noiseParams.beta,noiseParams.n);
-		addMessage(0,"noise: ",
+		UI.addMessage(0,"noise: ",
 			"alpha:"+noiseParams.alpha.toFixed(2)+", "+
 			"beta:"+noiseParams.beta.toFixed(2)+", "+
 			"n:"+noiseParams.n,
@@ -194,7 +202,7 @@ DemoNoiseExplorer.prototype = {
 		this.setPoints();
 	},
 	updateCameraMessage: function() {
-		addMessage(0,"camera: ",
+		UI.addMessage(0,"camera: ",
 			"threshold:"+this.uniforms.threshold.toFixed(2),
 			this.camera);
 	},
@@ -214,21 +222,28 @@ DemoNoiseExplorer.prototype = {
 	show: function() {
 		this.onResize();
 		this.win.show(-1);
-		addMessage(0,
+		this.menu.show();
+		UI.addMessage(0,
 			"help: ",
 			"press A, B, N or T to adjust a parameter; try also CTRL, SHIFT",
 			this);
 	},
 	hide: function() {
 		this.win.hide();
-		removeMessage(this.noiseParams);
-		removeMessage(this.camera);
-		removeMessage(this);
+		this.menu.hide();
+		UI.removeMessage(this.noiseParams);
+		UI.removeMessage(this.camera);
+		UI.removeMessage(this);
 	},
 	onResize: function() {
 		this.setPos([0,0]);
 		this.setSize([canvas.width,canvas.height]);
 		this.layout();
+	},
+	layout: function() {
+		this.menu.performLayout();
+		this.menu.ctrl.setPosVisible([canvas.width,canvas.height]); // bottom-right
+		UIViewport.prototype.layout.call(this);
 	},
 	onMouseWheel: function(evt,amount) {
 		if(this.isMouseInRect(evt)) {

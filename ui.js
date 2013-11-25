@@ -467,6 +467,7 @@ UIContext.prototype = {
 function UIWindow(modal,ctrl,tag) {
 	assert(this instanceof UIWindow);
 	this.mvp = null;
+	this.transform = null;
 	this.isDirty = true;
 	this.needsLayout = true;
 	this.showScheduled = false;
@@ -497,7 +498,7 @@ UIWindow.prototype = {
 			this.walk(this._draw);
 			this.ctx.finish();
 		}
-		this.ctx.draw(this.mvp);
+		this.ctx.draw(this.transform? mat4_multiply(this.mvp,this.transform): this.mvp);
 	},
 	_draw: function(ctrl) {
 		if(!ctrl.visible)
@@ -711,6 +712,44 @@ var UI = {
 			var window = this.windows[i];
 			window.onResize(evt);
 		}
+	},
+	addMessage: function(secs,from,text,tag) {
+		var 	f = from? new UILabel(from): null,
+			message = new UIPanel(f?[f,new UILabel(text)]:[new UILabel(text)]);
+		message.bgColour = this.defaults.messages.text;
+		message.tag = tag;
+		if(f) f.fgColour = this.defaults.messages.from;
+		if(!this._messages) {
+			this._messages = new UIWindow(false,new UIPanel([],UILayoutRows),"messages");
+			this._messages.show();
+		}
+		var old = tag? this.getMessage(tag): null;
+		if(old) {
+			old.parent.replaceChild(old,message);
+			if(old.dismisser)
+				clearTimeout(old.dismisser);
+		} else
+			this._messages.ctrl.addChild(message);
+		if(secs)
+			this._messages.dismisser = setTimeout(function() { message.destroy(); },secs*1000);
+	},
+	getMessage: function(tag) {
+		if(!this._messages) return null;
+		for(var message in this._messages.ctrl.children) {
+			message = this._messages.ctrl.children[message];
+			if(message.tag == tag)
+				return message;
+		}
+		return null;
+	},
+	removeMessage: function(tag) {
+		var message = this.getMessage(tag);
+		if(message) {
+			message.destroy();
+			if(message.dismisser)
+				clearTimeout(message.dismisser);
+		}
+		return message != null;
 	},
 	defaults: {
 		hpadding: 5,
@@ -981,10 +1020,10 @@ UIPanel.prototype = {
 
 function UILabel(text,outline,tag) {
 	UIComponent.call(this);
-	this.text = text;
+	this.text = String(text);
 	this.outline = outline || this.outline;
 	this.tag = tag;
-}	
+}
 UILabel.prototype = {
 	__proto__: UIComponent.prototype,
 	outline: false,

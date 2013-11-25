@@ -31,7 +31,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 function ParticleSystemFire1(rect,sprite,qty) {
-	assert(this !== window);
+	assert(this instanceof ParticleSystemFire1);
 	this.size = vec2_sub(rect[1],rect[0]);
 	this.rect = rect;
 	this.scale = vec2_scale(this.size,0.5);

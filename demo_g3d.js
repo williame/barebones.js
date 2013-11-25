@@ -39,9 +39,6 @@ function DemoG3D() {
 			new UIButton("auto normals",function() { self.model.autoNormals(); }),
 		],UILayoutRows));
 	this.menu.ctrl.allowClickThru = false;
-	loadFile("image","data/opaque.png",function(tex) {
-		programs.blankTex = tex;
-	});
 }
 DemoG3D.prototype = {
 	__proto__: UIViewport.prototype,

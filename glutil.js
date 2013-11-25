@@ -129,6 +129,7 @@ function createProgram(vstr,fstr) {
 }
 
 function Program(vertexShader,fragmentShader) {
+	assert(typeof this === "undefined");
 	var	init = Array.prototype.slice.call(arguments,0),
 		program = null;
 	return function(cb,uniforms,self) {
@@ -305,15 +306,15 @@ function extractFrustum(matrix) {
  	];
 }
 
-function frustum_aabb_intersects(frustum,centre,size) {
+function frustum_aabb_intersects(frustum,centre,half_size) {
 	for(var plane in frustum) {
 		plane = frustum[plane];
 		var d = centre[0] * plane[0] + 
 			centre[1] * plane[1] + 
 			centre[2] * plane[2];
-		var r = size[0] * plane[4] + 
-			size[1] * plane[5] + 
-			size[2] * plane[6];
+		var r = half_size[0] * plane[4] + 
+			half_size[1] * plane[5] + 
+			half_size[2] * plane[6];
 		if(d+r < -plane[3])
 			return false;
 	}
@@ -626,9 +627,9 @@ function triangle_ray_intersection(a,b,c,ray_origin,ray_dir,n,is_seg,is_infinite
 	var v = vec3_sub(c,a);
 	n = n || vec3_cross(u,v); // if not passed in, compute it
 	if(n[0]==0 && n[1]==0 && n[2]==0) return null; // triangle is degenerate
-	var w0 = vec3_sub(ray_origin,a);
 	var j = vec3_dot(n,ray_dir);
 	if(Math.abs(j) < 0.00000001) return null; // parallel, disjoint or on plane
+	var w0 = vec3_sub(ray_origin,a);
 	var i = -vec3_dot(n,w0);
 	// get intersect point of ray with triangle plane
 	var k = i / j;
@@ -753,10 +754,10 @@ function line_to_ray(line) {
 	return [line[0],vec3_sub(line[1],line[0])];
 }
 
-function ray_ray_closest_point_ofs_3(ray1,ray2) {
-	var	d21 = vec3_sub(ray1[0],ray1[1]), // note order
-		d34 = vec3_sub(ray2[1],ray2[0]),
-		d13 = vec3_sub(ray2[0],ray1[0]),
+function line_line_closest_point_ofs_3(line1,line2) {
+	var	d21 = vec3_sub(line1[0],line1[1]), // note order
+		d34 = vec3_sub(line2[1],line2[0]),
+		d13 = vec3_sub(line2[0],line1[0]),
 		a = vec3_dot(d21,d21),
 		b = vec3_dot(d21,d34),
 		c = vec3_dot(d34,d34),
@@ -764,18 +765,6 @@ function ray_ray_closest_point_ofs_3(ray1,ray2) {
 		e = -vec3_dot(d13,d34),
 		u1 = (d*c-e*b)/(c*a-b*b),
 		u2 = (e-b*u1) / c;
-	return [u1,u2];
-}
-
-function ray_ray_closest_point_3(ray1,ray2) {
-	var ofs = ray_ray_closest_point_ofs_3(ray1,ray2);
-	return [ofs[0],vec3_lerp(ray1[0],ray1[1],ofs[0]),
-		ofs[1],vec3_lerp(ray2[0],ray2[1],ofs[1])];
-}
-
-function line_line_closest_point_ofs_3(line1,line2) {
-	var	cross = ray_ray_closest_point_ofs_3(line1,line2),
-		u1 = cross[0], u2 = cross[1];
 	return [Math.min(Math.max(0,u1),1),
 		Math.min(Math.max(0,u2),1)];
 }
@@ -904,7 +893,7 @@ function triangle_sphere_sweep(a,b,c,start,stop,radius,twoSided) { //clockwise w
 		v = vec3_sub(c,a),
 		n = vec3_cross(u,v);
 	if(n[0]==0 && n[1]==0 && n[2]==0) { // triangle is degenerate
-		addMessage(0,null,"triangle is degenerate",triangle_sphere_sweep);
+		UI.addMessage(0,null,"triangle is degenerate",triangle_sphere_sweep);
 		return null;
 	}
 	var	dir = vec3_sub(stop,start),
@@ -913,17 +902,17 @@ function triangle_sphere_sweep(a,b,c,start,stop,radius,twoSided) { //clockwise w
 	// which side of triangle is line?
 	var start_height = vec3_dot(n,vec3_sub(start,a));
 	if(start_height < 0) {
-		addMessage(0,null,"line is beneath triangle",triangle_sphere_sweep);
+		UI.addMessage(0,null,"line is beneath triangle",triangle_sphere_sweep);
 		return null;
 	}
 	var stop_height = vec3_dot(n,vec3_sub(stop,a));
 	if(stop_height > start_height) {
-		addMessage(0,null,"wrong slope",triangle_sphere_sweep);
+		UI.addMessage(0,null,"wrong slope",triangle_sphere_sweep);
 		return null;
 	}
 	colinear = colinear || (float_equ(start_height,stop_height) && float_equ(start_height,radius));
 	if(colinear)
-		addMessage(0,null,"colinear",triangle_sphere_sweep);
+		UI.addMessage(0,null,"colinear",triangle_sphere_sweep);
 	if(!colinear && start_height > radius) { // far enough above to hit the triangle itself?
 		// get intersect point of ray with triangle plane that is radius above it
 		var	normal = vec3_normalise(n),
@@ -931,11 +920,11 @@ function triangle_sphere_sweep(a,b,c,start,stop,radius,twoSided) { //clockwise w
 			i = -vec3_dot(n,vec3_sub(start,start_plane)),
 			k = i / j;
 		if(k < 0) { // line goes away from triangle
-			addMessage(0,null,"line goes away from triangle",triangle_sphere_sweep);
+			UI.addMessage(0,null,"line goes away from triangle",triangle_sphere_sweep);
 			return null; 
 		}
 		if(k > 1) { // to far on line
-			addMessage(0,null,"line stops before triangle",triangle_sphere_sweep);
+			UI.addMessage(0,null,"line stops before triangle",triangle_sphere_sweep);
 			return null;
 		}
 		// do we hit the triangle radius above?
@@ -951,7 +940,7 @@ function triangle_sphere_sweep(a,b,c,start,stop,radius,twoSided) { //clockwise w
 		if(s>=0 && s<=1) {
 			var t = (uv * wu - uu * wv) / D;
 			if(t>=0 && (s+t)<=1) {
-				addMessage(0,null,"hit in triangle",triangle_sphere_sweep);
+				UI.addMessage(0,null,"hit in triangle",triangle_sphere_sweep);
 				return [k,normal];
 			}
 		}
@@ -978,15 +967,15 @@ function triangle_sphere_sweep(a,b,c,start,stop,radius,twoSided) { //clockwise w
 		}
 	}
 	if(best_pt != null) {
-		addMessage(0,null,"hit edge",triangle_sphere_sweep);
+		UI.addMessage(0,null,"hit edge",triangle_sphere_sweep);
 		var	hit = vec3_lerp(start,stop,best_ofs),
 			hit_dist2 = vec3_distance_sqrd(hit,best_pt);
 			if(!float_equ(hit_dist2,radius2))
-				addMessage(0,null,"wrong distance! "+hit_dist2+" != "+radius2+" ("+(hit_dist2-radius2)+")");
+				UI.addMessage(0,null,"wrong distance! "+hit_dist2+" != "+radius2+" ("+(hit_dist2-radius2)+")");
 		return [best_ofs,vec3_normalise(vec3_sub(hit,best_pt))];
 	}
 	// no hit
-	addMessage(0,null,"miss",triangle_sphere_sweep);
+	UI.addMessage(0,null,"miss",triangle_sphere_sweep);
 	return null;
 }
 
@@ -1460,7 +1449,7 @@ Square.prototype = {
 };
 
 function BlockBuffer(width,refFactory,arrayFactory) {
-	assert(this !== window);
+	assert(this instanceof BlockBuffer);
 	this.width = width;
 	this.refFactory = refFactory;
 	this.arrayFactory = arrayFactory || Float32Array;
@@ -1558,11 +1547,10 @@ VertexBuffer.prototype = {
 		if(!this.ready || !this.len) return;
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 		var args = Array.prototype.slice.call(arguments,2);
-		args.unshift(this.doDraw,{
-				__proto__: uniforms,
-				colour: vec4_multiply(this.colour,uniforms.colour||OPAQUE),
-			},this);
-		(program||this.program).apply(this,args);
+		args.unshift(this);
+		args.unshift({ __proto__: uniforms, colour: vec4_multiply(this.colour,uniforms.colour||OPAQUE), });
+		args.unshift(this.doDraw);
+		(program||this.program).apply(null,args);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 	},
 	update: function() {
@@ -1592,7 +1580,7 @@ Cubes.prototype = {
 };
 
 function CubeRef(cubes,ctx,idx) {
-	assert(this !== window);
+	assert(this instanceof CubeRef);
 	this.cubes = cubes;
 	this.ctx = ctx;
 	this.idx = idx;
@@ -1714,9 +1702,9 @@ Quad.prototype = {
 		emit(1);
 		emit(2);
 		if(pts.length == 4) {
-			emit(0);
 			emit(2);
 			emit(3);
+			emit(0);
 		} else {
 			assert(pts.length == 6);
 			normal = triangle_normal(pts[3],pts[4],pts[5]);
@@ -1744,19 +1732,20 @@ function Quads(colour,texture) {
 }
 Quads.prototype = {
 	__proto__: VertexBuffer.prototype,
-	draw: function(uniforms,program) {
+	draw: function(uniforms,program,op) {
+		this.update();
 		VertexBuffer.prototype.draw.call(this,{
 			__proto__: uniforms,
 			tex: this.textureAtlas? this.textureAtlas.texture: this.texture,
-		},program);
+		},program,op||gl.TRIANGLES);
 	},
-	doDraw: function(program) {
+	doDraw: function(program,op) {
 		var	tex = this.texture||this.textureAtlas,
 			stride = 4*(tex?8:6);
 		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,stride,0);
 		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,stride,3*4);
 		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,stride,tex?6*4:0);
-		gl.drawArrays(gl.TRIANGLES,0,this.len*6);
+		gl.drawArrays(op,0,this.len*6);
 	},
 };
 
@@ -1798,3 +1787,10 @@ function getFrustumsInsphere(viewport,invMvpMatrix) {
 	return horiz[3]<vert[3]? horiz: vert;
 }
 
+function roundDown(num) {
+	return num < 0? Math.ceil(num): Math.floor(num);
+}
+
+function roundUp(num) {
+	return num < 0? Math.floor(num): Math.ceil(num);
+}
