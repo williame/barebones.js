@@ -761,6 +761,10 @@ var UI = {
 			bgColour: [0.3,0.3,0.8,1.0],
 			txtOutline: [0,0,0,0.5],
 			fgColour: [1.0,1.0,1.0,1.0],
+			active: {
+				bgColour: [1.0,0.3,0.3,1.0],
+				fgColour: [1.0,1.0,1.0,1.0],
+			},
 			disabled: {
 				bgColour: [0.3,0.3,0.3,1.0],
 				fgColour: [0.5,0.5,0.5,1.0],
@@ -772,7 +776,6 @@ var UI = {
 		},
 		fgColour: [1.0,0.0,0.5,1.0],
 		bgColour: [0.3,0.2,0.2,0.5],
-		bgColourActive: [1,0,0,1],
 		dividerColour: [0.9,0.9,0.9,0.5],
 		lineHeight: 13,
 		spacerHeight: 3,
@@ -1083,10 +1086,10 @@ function UIButton(text,onClick,tag,leftIcon,rightIcon) {
 UIButton.prototype = {
 	__proto__: UIPanel.prototype,
 	getBgColour: function() {
-		return this.enabled? this.bgColour || UI.defaults.btn.bgColour: UI.defaults.btn.disabled.bgColour;
+		return this.bgColour || (this.enabled? this.active? UI.defaults.btn.active.bgColour: UI.defaults.btn.bgColour: UI.defaults.btn.disabled.bgColour);
 	},
 	getFgColour: function() {
-		return this.enabled? this.fgColour || UI.defaults.btn.fgColour: UI.defaults.btn.disabled.fgColour;
+		return this.fgColour || (this.enabled? this.active? UI.defaults.btn.active.fgColour: UI.defaults.btn.fgColour: UI.defaults.btn.disabled.fgColour);
 	},
 	canFocus: true,
 	setText: function(text) {
@@ -1094,6 +1097,10 @@ UIButton.prototype = {
 	},
 	getText: function() {
 		return this.label.text;
+	},
+	setActive: function(active) {
+		this.active = !!active;
+		this.dirty();
 	},
 };
 
@@ -1122,6 +1129,8 @@ function UIViewport(view) {
 	UIComponent.call(this);
 	this.view = view;
 	this.viewport = null;
+	this.tool = null;
+	this.hadMouseDown = false;
 	this.setViewport();
 }
 UIViewport.prototype = {
@@ -1158,6 +1167,46 @@ UIViewport.prototype = {
 	setSize: function(size) {
 		UIComponent.prototype.setSize.call(this,size);
 		this.setViewport();
+	},
+	mouseRay: function(evt) {
+		return unproject(evt.clientX,canvas.height-evt.clientY,
+			this.uniforms.mvMatrix,this.uniforms.pMatrix,
+			this.viewport);
+	},
+	mousePos: function(evt) {
+		var ray = this.mouseRay(evt), plane = [[1,0,0],[0,1,0]];
+		return plane_ray_intersection(plane,ray);
+	},
+	onMouseDown: function(evt,keys) {
+		if(!this.isMouseInRect(evt))
+			return false;
+		this.hadMouseDown = true;
+		if(this.tool && this.tool.onMouseDown)
+			this.tool.onMouseDown(evt,keys);
+		return true;
+	},
+	onMouseMove: function(evt,keys,isMouseDown) {
+		if(!this.isMouseInRect(evt))
+			return false;
+		if(this.tool && this.tool.onMouseMove)
+			this.tool.onMouseMove(evt,keys,isMouseDown && this.hadMouseDown);
+		return true;
+	},
+	onMouseUp: function(evt,keys) {
+		this.hadMouseDown = false;
+		if(!this.isMouseInRect(evt))
+			return false;
+		if(this.tool && this.tool.onMouseUp)
+			this.tool.onMouseUp(evt,keys);
+		return true;
+	},
+	onMouseOut: function(evt,keys) {
+		this.hadMouseDown = false;
+		if(!this.isMouseInRect(evt))
+			return false;
+		if(this.tool && this.tool.onMouseOut)
+			this.tool.onMouseOut(evt,keys);
+		return true;
 	},
 };
 
@@ -1269,10 +1318,8 @@ UIChoiceMenu.prototype = {
 			this.view.tool = null;
 		}
 		this.window().walk(function(ctrl) {
-				if(ctrl.tag && startsWith(ctrl.tag,"tools|")) {
-					ctrl.bgColour = ctrl.tag == "tools|"+name? UI.defaults.btn.bgColorActive: UI.defaults.btn.bgColour;
-					ctrl.dirty();
-				}
+				if(ctrl.tag && startsWith(ctrl.tag,"tools|"))
+					ctrl.setActive(ctrl.tag == "tools|"+name);
 				return true;
 			});
 		for(var t in this.tools)

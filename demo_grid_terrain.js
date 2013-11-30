@@ -126,11 +126,6 @@ DemoGridTerrain.prototype = {
 		this.uniforms.mvMatrix = new Float32Array(createLookAt(this.camera.eye,this.camera.centre,this.camera.up));
 		this.uniforms.nMatrix = mat4_mat3(mat4_transpose(mat4_inverse(this.uniforms.mvMatrix)));
 	},
-	mouseRay: function(evt) {
-		return unproject(evt.clientX,canvas.height-evt.clientY,
-			this.uniforms.mvMatrix,this.uniforms.pMatrix,
-			this.viewport);
-	},
 	mousePos: function(evt) {
 		return this.map.pos(this.mouseRay(evt));
 	},
@@ -166,37 +161,6 @@ DemoGridTerrain.prototype = {
 			return true;
 		}
 		return false;
-	},
-	onMouseDown: function(evt,keys) {
-		if(!this.isMouseInRect(evt))
-			return false;
-		this.hadMouseDown = true;
-		if(this.tool && this.tool.onMouseDown)
-			this.tool.onMouseDown(evt,keys);
-		return true;
-	},
-	onMouseMove: function(evt,keys,isMouseDown) {
-		if(!this.isMouseInRect(evt))
-			return false;
-		if(this.tool && this.tool.onMouseMove)
-			this.tool.onMouseMove(evt,keys,isMouseDown && this.hadMouseDown);
-		return true;
-	},
-	onMouseUp: function(evt,keys) {
-		this.hadMouseDown = false;
-		if(!this.isMouseInRect(evt))
-			return false;
-		if(this.tool && this.tool.onMouseUp)
-			this.tool.onMouseUp(evt,keys);
-		return true;
-	},
-	onMouseOut: function(evt,keys) {
-		this.hadMouseDown = false;
-		if(!this.isMouseInRect(evt))
-			return false;
-		if(this.tool && this.tool.onMouseOut)
-			this.tool.onMouseOut(evt,keys);
-		return true;
 	},
 };
 
@@ -577,7 +541,6 @@ DemoGridTerrainPaint.prototype = {
 		if(this.pos) {
 			programs.standard(this.drawSelector,{
 				__proto__: this.view.uniforms,
-				nMatrix: mat4_identity,
 				colour: [1,1,1,1],
 			},this);
 		}

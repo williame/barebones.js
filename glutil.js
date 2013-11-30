@@ -131,7 +131,12 @@ function createProgram(vstr,fstr) {
 function Program(vertexShader,fragmentShader) {
 	assert(typeof this === "undefined");
 	var	init = Array.prototype.slice.call(arguments,0),
-		program = null;
+		program = null,
+		owner = function() {
+			var e = new Error();
+			if(!e.stack) try { throw e; } catch(_) {}
+			return e.stack.split("\n")[3].replace(/^\s+|\s+$/g,'');
+		}();
 	return function(cb,uniforms,self) {
 		assert(typeof cb === "function");
 		if(!program) { // create on demand
@@ -147,17 +152,25 @@ function Program(vertexShader,fragmentShader) {
 				set = uniform[2];
 			if(name in uniforms) {
 				var value = uniforms[name];
-				if(set === gl.uniformMatrix4fv || set === gl.uniformMatrix3fv)
+				switch(set) {
+				case gl.uniformMatrix4fv:
+					assert(value.length == 4*4,name,"should be 4x4",value,owner);
 					set.call(gl,location,false,value);
-				else
+					break;
+				case gl.uniformMatrix3fv:
+					assert(value.length == 3*3,name,"should be 3x3",value,owner);
+					set.call(gl,location,false,value);
+					break;
+				default:
 					set.call(gl,location,value);
+				}
 			} else switch(name) {
 			case "mvp":
 				set.call(gl,i,false,mat4_multiply(uniforms.pMatrix,uniforms.mvMatrix));
 				break;
 			case "nMatrix":
-				var nMatrix = mat4_transpose(uniforms.mvMatrix);
-				if(set === gl.uniformMatrix3fv)
+				var nMatrix = mat4_transpose(mat4_inverse(this.uniforms.mvMatrix));
+				if(set === gl.uniformMatrix3fv && nMatrix.length == 4*4)
 					set.call(gl,location,false,mat4_mat3(nMatrix));
 				else
 					set.call(gl,location,false,nMatrix);
@@ -174,7 +187,7 @@ function Program(vertexShader,fragmentShader) {
 				if(!program._errors) program._errors = {};
 				if(!(error in program._errors)) { // suppress logging each and every time
 					program._errors[error] = 1;
-					console.log("WARNING!",error);
+					console.log("WARNING!",owner,error);
 				}
 			}
 		}
@@ -1159,7 +1172,8 @@ function Sphere(iterations) {
 	if(!Sphere.program)
 		Sphere.program = Program(
 			"precision mediump float;\n"+
-			"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
+			"uniform mat4 mvMatrix, pMatrix;\n"+
+			"uniform mat3 nMatrix;\n"+
 			"attribute vec3 vertex;\n"+
 			"varying vec3 lighting;\n"+
 			"void main() {\n"+
@@ -1168,7 +1182,7 @@ function Sphere(iterations) {
 			"	vec3 ambientLight = vec3(0.6,0.6,0.6);\n"+
 			"	vec3 lightColour = vec3(0.8,0.9,0.75);\n"+
 			"	vec3 lightDir = vec3(0.85,0.8,0.75);\n"+
-			"	vec3 transformed = normalize(nMatrix * vec4(normal,1.0)).xyz;\n"+
+			"	vec3 transformed = normalize(nMatrix * normal);\n"+
 			"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
 			"	lighting = ambientLight + (lightColour*directional);\n"+
 			"}",
@@ -1289,10 +1303,11 @@ var programs = gl? {
 		"attribute vec3 vertex;\n"+
 		"attribute vec3 normal;\n"+
 		"attribute vec2 texCoord;\n"+
-		"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
+		"uniform mat4 mvMatrix, pMatrix;\n"+
+		"uniform mat3 nMatrix;\n"+
 		"uniform lowp vec3 lightDir, ambientLight, lightColour;\n"+
 		"void main() {\n"+
-		"	vec3 transformed = normalize(nMatrix * vec4(normal,0.0)).xyz;\n"+
+		"	vec3 transformed = normalize(nMatrix*normal);\n"+
 		"	float directional = clamp(dot(transformed,lightDir),0.0,1.0);\n"+
 		"	lighting = ambientLight + (lightColour*directional);\n"+
 		"	texel = texCoord;\n"+
@@ -1323,10 +1338,11 @@ var programs = gl? {
 		"attribute vec3 vertex1, vertex2;\n"+
 		"attribute vec3 normal1, normal2;\n"+
 		"attribute vec2 texCoord;\n"+
-		"uniform mat4 mvMatrix, pMatrix, nMatrix;\n"+
+		"uniform mat4 mvMatrix, pMatrix;\n"+
+		"uniform mat3 nMatrix;\n"+
 		"uniform lowp vec3 lightPos;\n"+
 		"void main() {\n"+
-		"	normal = normalize(nMatrix * vec4(mix(normal1,normal2,lerp),0.0)).xyz;\n"+
+		"	normal = normalize(mix(normal1,normal2,lerp));\n"+
 		"	vec3 vertex = mix(vertex1,vertex2,lerp);\n"+
 		"	vec4 pos = mvMatrix * vec4(vertex,1.0);\n"+
 		"	eye = -pos.xyz;\n"+
