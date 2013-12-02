@@ -30,7 +30,21 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 function DemoG3D() {
 	UIViewport.call(this,this);
-	this.model = new G3D("data/test.g3d"); // model to draw
+	this.models = [
+		{
+			name: "spider",
+			file:"data/test.g3d",
+		},
+		{
+			name:"battle machine",
+			file:"data/battle_machine_charging.g3d",
+		},
+		{
+			name:"ornithopter",
+			file:"data/ornithopter_walking.g3d",
+		},
+	];
+	this.model = this.models[0].g3d = new G3D(this.models[0].file);
 	this.viewMode = "3D";
 	this.uniforms = {
 		pMatrix: null,
@@ -38,14 +52,17 @@ function DemoG3D() {
 		nMatrix: null,
 	};
 	this.camera = {
-		centre: [0,0,0],
+		centre: [1,0,0],
 		up: null,
-		eye: [0,3,3],
+		eye: [0,2,1],
 		zoom: false,
 	};
 	this.win = new UIWindow(false,this); // a window to host this viewport in
 	var self = this;
 	var menu = new UIChoiceMenu("g3d demo",[UIViewport.ToolPan,UIViewport.ToolRotate],this);
+	menu.addChild(new UIComboBox(this.models,0,function(model) {
+		self.model = model.g3d || (model.g3d = new G3D(model.file));
+	}));
 	menu.addChild(new UIButton("show normals",function() { 
 		self.showNormals = !self.showNormals;
 		this.setActive(self.showNormals);
@@ -54,9 +71,11 @@ function DemoG3D() {
 	menu.addChild(new UIButton("show grid",function() { 
 		self.showGrid = !self.showGrid;
 		this.setActive(self.showGrid);
-	}));
+	},"showGrid"));
 	this.menu = new UIWindow(false,menu);
 	this.menu.ctrl.allowClickThru = false;
+	this.showGrid = true;
+	this.menu.find("showGrid").setActive(this.showGrid);
 }
 DemoG3D.prototype = {
 	__proto__: UIViewport.prototype,
@@ -64,36 +83,42 @@ DemoG3D.prototype = {
 		gl.clearColor(0,0,0,0);
 		gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 		if(!this.model.ready) return;
-		var now = window.now(), t = (now/1000)%1;
-		var uniforms = {
-			__proto__: this.uniforms,
-			colour: OPAQUE,
-			fogColour: [0.2,0.2,0.2,1.0],
-			fogDensity: this.showNormals? 0: 0.02,
-			lightPos: [-0.5,2,2],
-			lightColour: this.showNormals? [1,0,0,1]: [1,1,1,1],
-			ambientLight: this.showNormals? [0,0.6,0,1]: [0.2,0.2,0.2,1],
-			diffuseLight: [0.8,0.8,0.8,1],
-			specularLight: [0,0,0.2,1],
-		};
+		var	now = window.now(), t = (now/1000)%1,
+			//invMvMatrix = mat4_inverse(this.uniforms.mvMatrix),
+			lightPos = [-0.5,1,1],
+			uniforms = {
+				__proto__: this.uniforms,
+				colour: OPAQUE,
+				fogColour: [0.2,0.2,0.2,1.0],
+				fogDensity: this.showNormals? 0: 0.02,
+				lightColour: this.showNormals? [1,0,0,1]: [1,1,1,1],
+				ambientLight: this.showNormals? [0,0.6,0,1]: [0.2,0.2,0.2,1],
+				diffuseLight: [0.6,0.6,0.6,1],
+				specularLight: [0,0,0.2,1],
+			};
 		gl.lineWidth(1.0);
 		if(this.showGrid) {
 			var d = 50;
 			if(!this.gridLines) {
-				var ofs = d/2, vertices = new Float32Array(d*3*2*2);
+				var	origin = d/2,
+					vertices = new Float32Array(d*3*2*2+6*3),
+					ofs = 0,
+					emit = function(x,y,z) {
+						vertices[ofs++] = x;
+						vertices[ofs++] = y;
+						vertices[ofs++] = z;
+					}
+				emit(-origin,0,-origin);
+				emit(origin-1,0,origin-1);
+				emit(origin-1,0,-origin);
+				emit(-origin,0,-origin);
+				emit(-origin,0,origin-1);
+				emit(origin-1,0,origin-1);
 				for(var line=0, i=0; line<d; line++) {
-					vertices[i++] = -ofs;
-					vertices[i++] = 0;
-					vertices[i++] = line-ofs;
-					vertices[i++] = ofs-1;
-					vertices[i++] = 0;
-					vertices[i++] = line-ofs;
-					vertices[i++] = line-ofs;
-					vertices[i++] = 0;
-					vertices[i++] = -ofs;
-					vertices[i++] = line-ofs;
-					vertices[i++] = 0;
-					vertices[i++] = ofs-1;
+					emit(-origin,0,line-origin);
+					emit(origin-1,0,line-origin);
+					emit(line-origin,0,-origin);
+					emit(line-origin,0,origin-1);
 				}
 				this.gridLines = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER,this.gridLines);
@@ -102,21 +127,25 @@ DemoG3D.prototype = {
 			programs.solidFill(function(program) {
 				gl.bindBuffer(gl.ARRAY_BUFFER,this.gridLines);
 				gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,0,0);
-				gl.drawArrays(gl.LINES,0,d*2*2);
+				gl.drawArrays(gl.LINES,6,d*2*2);
+				gl.uniform4f(program.colour,0.8,0.6,0.6,1);
+				gl.drawArrays(gl.TRIANGLES,0,6);
 			},uniforms,this);
 			gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		}
 		var bounds = this.model.bounds, size = vec3_sub(bounds[1],bounds[0]);
 		var modelUniforms = {
 			__proto__: uniforms,
+				
 		};
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_scale(1/Math.max.apply(Math,size)));
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_translation(vec3_neg(bounds[0])));
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_rotation(now/4000,[0,1,0]));
+		modelUniforms.lightPos = mat4_vec3_multiply(mat4_inverse(modelUniforms.mvMatrix),lightPos);
 		if(this.showNormals) {
 			this.model.draw(modelUniforms,t,true);
 			this.model.drawNormals(modelUniforms,t);
-			Sphere(2).draw(uniforms,vec3_vec4(uniforms.lightPos,0.2),[0.8,0.7,0,1.0]);
+			Sphere(2).draw(uniforms,vec3_vec4(lightPos,0.05),[0.8,0.7,0,1.0]);
 		} else
 			this.model.draw(modelUniforms,t);
 	},

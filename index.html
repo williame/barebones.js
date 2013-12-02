@@ -48,7 +48,7 @@ body { border:0px;margin:0px;padding:0px; background-color: black; color: white;
 function game() { //### you replace this!  This is called when the framework has finished loading
 	game.menu = new UIWindow(false,new UIPanel([
 			new UILabel("demos"),
-			new UIButton("g3d spider",function() { setDemo(new DemoG3D()); }),
+			new UIButton("g3d models",function() { setDemo(new DemoG3D()); }),
 			new UIButton("grid terrain",function() { setDemo(new DemoGridTerrain()); }),
 			new UIButton("noise explorer",function() { setDemo(new DemoNoiseExplorer()); }),
 		],UILayoutRows));
@@ -460,8 +460,7 @@ function loadFile(type,path,callback) {
 	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
 	loadFile.loadingWait = setTimeout(function() {
 		console.log("awaiting load of:",loadFile.loading);
-		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
-		if(splash) splash.dirty();
+		fail("it's taking a long time to load all the files!  Maybe something is wrong?");
 	},10*1000);
 	var	fail = Callback(null,function(e) { window.onerror("failed to load",type,path); }),
 		done = function(arg) {

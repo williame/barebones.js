@@ -1347,8 +1347,8 @@ var programs = gl? {
 		"	vec4 pos = mvMatrix * vec4(vertex,1.0);\n"+
 		"	eye = -pos.xyz;\n"+
 		"	lightDir = lightPos + eye;\n"+
-		"	texel = texCoord;\n"+
 		"	gl_Position = pMatrix * pos;\n"+
+		"	texel = texCoord;\n"+
 		"}\n",
 		"precision mediump float;\n"+
 		"varying vec2 texel;\n"+
