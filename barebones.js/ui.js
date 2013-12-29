@@ -530,7 +530,8 @@ UIWindow.prototype = {
 	_changeVisibility: function() {
 		if(this.showScheduled) {
 			this.showScheduled = false;
-			if(this.isShown())
+			var alreadyShown = this.isShown();
+			if(alreadyShown)
 				this.hide();
 			if(this.modal) {
 				UI.windows.push(this);
@@ -544,6 +545,8 @@ UIWindow.prototype = {
 				}
 				UI.windows.unshift(this);
 			}
+			if(!alreadyShown)
+				this.onResize();
 		} else if(this.hideScheduled) {
 			this.hideScheduled = false;
 			var idx = UI.windows.indexOf(this);
@@ -751,6 +754,11 @@ var UI = {
 		}
 		return message != null;
 	},
+	removeAllMessages: function() {
+		if(!this._messages) return;
+		this._messages.hide();
+		this._messages = null;
+	},
 	defaults: {
 		hpadding: 5,
 		vpadding: 5,
@@ -781,7 +789,7 @@ var UI = {
 		spacerHeight: 3,
 	},
 };
-UI.loadFont("default","bitstream_vera_sans");
+UI.loadFont("default","data/bitstream_vera_sans");
 
 function UIComponent() {
 	assert(this instanceof UIComponent);
@@ -826,6 +834,13 @@ UIComponent.prototype = {
 		this.x2 = this.x1 + width;
 		this.dirty();
 	},
+	setRect: function(rect) {
+		this.setPos([rect[0],rect[1]]);
+		this.setSize([rect[2],rect[3]]);
+		this.dirty();
+	},
+	x: function() { return this.x1; },
+	y: function() { return this.y1; },
 	width: function() { return this.x2 - this.x1; },
 	height: function() { return this.y2 - this.y1; },
 	size: function() { return [this.width(),this.height()]; },
@@ -893,6 +908,7 @@ UIComponent.prototype = {
 		if(i == -1)
 			this.children.push(to);
 		else if(to) {
+			this.children[i].setParent(null);
 			this.children[i] = to;
 			to.setParent(this);
 		} else
@@ -1333,12 +1349,13 @@ UIChoiceMenu.prototype = {
 	},
 };
 
-function VSpacer() {
+function VSpacer(pixels) {
 	UIComponent.call(this);
+	this.pixels = pixels;
 }
 VSpacer.prototype = {
 	__proto__: UIComponent.prototype,
-	preferredSize: function() { return [0,UI.defaults.spacerHeight]; },
+	preferredSize: function() { return [0,this.pixels || UI.defaults.spacerHeight]; },
 };
 
 function UIComboBox(options,idx,onSelect,tag,title) {

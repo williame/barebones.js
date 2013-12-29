@@ -52,10 +52,20 @@ var fail = fail || function(error) {
 		error = new Error(arrayToString.apply(null,arguments));
 	fail.error = error;
 	console.log("error",error,"at",error.stack);
-	if(window.document) {
+	if(!isInWebWorker) {
+		window.setTimeout(function() { window.location.reload(false); },2500);
+		if(isOnGithubPages && !isOnGithubPages() && isOnFileSystem && !isOnFileSystem()) {
+			var doc = new XMLHttpRequest();
+			doc.open("POST","/api/report_error",true);
+			doc.overrideMimeType("text/plain");
+			doc.onerror = function() {};
+			doc.send(""+error+"\n"+error.stack);		
+		}
 		var div = window.document.getElementById("error");
-		div.innerHTML = "<b>AN ERROR OCCURRED</b><pre>"+error.stack;
-		div.style.display = "block";
+		if(div) {
+			div.innerHTML = "<b>AN ERROR OCCURRED</b><br/>"+error+"<br/><pre>"+error.stack;
+			div.style.display = "block";
+		}
 	}
 	throw error;
 }
@@ -65,9 +75,88 @@ var assert = assert || function(condition,msg) {
 		fail.apply(this,Array.prototype.slice.call(arguments,1));
 }
 
+function now() { return (new Date()).getTime(); }
+
+function startsWith(str,prefix) {
+	return str.indexOf(prefix) == 0;
+}
+
+function endsWith(str,suffix) {
+	return str.indexOf(suffix,str.length-suffix.length) !== -1;
+}
+
+function arrayEquals(a,b) {
+	if(!a || !b) return false;
+	assert(a instanceof Array);
+	assert(b instanceof Array);
+	if(a.length != b.length) return false;
+	for(var i=a.length; i-->0; )
+		if(a[i] != b[i]) return false;
+	return true;
+}
+
+function choose(list) {
+	return list[Math.floor(Math.random()*list.length)];
+}
+
 var isInWebWorker = !self.document;
 
+self.Transferrable = function(msg,transferrable) {
+	assert(this instanceof self.Transferrable);
+	this.msg = msg;
+	this.transferrable = transferrable;
+};
+
+function RNG(seed) {
+	assert(this instanceof RNG);
+	assert(seed);
+	// LCG using GCC's constants
+	this.m = 0x80000000; // 2**31;
+	this.a = 1103515245;
+	this.c = 12345;
+	this.state = seed;
+}
+RNG.prototype = {
+	nextInt: function() {
+		this.state = (this.a * this.state + this.c) % this.m;
+		return this.state;
+	},
+	random: function() { // returns in range [0,1]
+		return this.nextInt() / (this.m - 1);
+	},
+	nextRange: function(start, end) {
+		// returns in range [start, end): including start, excluding end
+		// can't modulu nextInt because of weak randomness in lower bits
+		var rangeSize = end - start;
+		var randomUnder1 = this.nextInt() / this.m;
+		return start + Math.floor(randomUnder1 * rangeSize);
+	},
+	choice: function(array) {
+		return array[this.nextRange(0,array.length)];
+	},
+};
+
 if(!isInWebWorker) {
+	window.onerror = function(msg,url,lineno) {
+		if(!fail.error)
+			fail("ERROR "+url+"#"+lineno+"\n"+msg);
+		else
+			console.log("ERROR "+url+"#"+lineno+"\n"+msg);
+	};
+	window.loadScript = function(scriptFilename,callback,async) {
+		console.log("loading",scriptFilename);
+		var script = document.createElement('script');
+		script.setAttribute("type","text/javascript");
+		script.setAttribute("src",scriptFilename);
+		script.onerror = window.onerror;
+		script.async = !!async;
+		if(callback)
+			script.onload = function() {
+				if(!script.readyState || script.readyState == "loaded" || script.readyState == "complete")
+					callback();
+			};
+		document.getElementsByTagName("head")[0].appendChild(script);
+	};
 	window.WebWorker = function(scriptFilenames,dispatch) {
 		this.scriptFilenames = scriptFilenames; // array of strings, in import order
 		this.dispatch = dispatch; // name of main dispatch function
@@ -95,17 +184,7 @@ if(!isInWebWorker) {
 										load();
 										return;
 									}
-								console.log("loading",scriptFilename);
-								var script = document.createElement('script');
-								script.setAttribute("type","text/javascript");
-								script.setAttribute("src",scriptFilename);
-								script.onerror = window.onerror;
-								script.async = true;
-								script.onload = function() {
-									if(!script.readyState || script.readyState == "loaded" || script.readyState == "complete")
-										load();
-								};
-								document.getElementsByTagName("head")[0].appendChild(script);
+								window.loadScript(scriptFilename,load,true);
 							} else {
 								self.dispatch = window[self.dispatch] || fail("bad dispatch: "+self.dispatch);
 								for(var queued in self.queued) {
@@ -127,14 +206,14 @@ if(!isInWebWorker) {
 					this.queued.push([data,callback,ctx]);
 				} else try {
 					ret = this.dispatch.call(this.worker,data);
-					callback.call(ctx,ret);
+					callback.call(ctx,ret instanceof Transferrable? ret.msg: ret);
 				} catch(error) {
 					fail(error+" "+error.stack);
 				}
 			} else {
 				if(!this.worker) {
 					var self = this;
-					this.worker = new Worker("web_worker.js");
+					this.worker = new Worker("barebones.js/barebones.js");
 					this.worker.onerror = window.onerror;
 					this.worker.onmessage = function() { self.receive.apply(self,arguments); };
 					this.worker.postMessage({
@@ -177,6 +256,8 @@ if(!isInWebWorker) {
 			console.log("unhandled response from web worker:",data);
 		},
 	};
+	window.loadScript("barebones.js/loader.js");
+	window.loadScript("barebones.js/loop.js");
 } else {
 	self.window = self;
 	self.console = {
@@ -202,8 +283,13 @@ if(!isInWebWorker) {
 				}
 				self.dispatch = self[cmd.dispatch];
 				assert(self.dispatch,"dispatch not specified");
-			} else
-				postMessage({ ret:self.dispatch(cmd), console:console.lines, });
+			} else {
+				var ret = self.dispatch(cmd);
+				if(ret instanceof self.Transferrable)
+					postMessage({ ret:ret.msg, console:console.lines, }, ret.transferrable)
+				else
+					postMessage({ ret:ret, console:console.lines, });
+			}
 		} catch(error) {
 			postMessage({ ret:true, error:""+error, stack:error.stack, });
 		}
