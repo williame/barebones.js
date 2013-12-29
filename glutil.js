@@ -1346,7 +1346,7 @@ var programs = gl? {
 		"	vec3 vertex = mix(vertex1,vertex2,lerp);\n"+
 		"	vec4 pos = mvMatrix * vec4(vertex,1.0);\n"+
 		"	eye = -pos.xyz;\n"+
-		"	lightDir = lightPos + eye;\n"+
+		"	lightDir = (mvMatrix * vec4(lightPos,1.0)).xyz + eye;\n"+
 		"	gl_Position = pMatrix * pos;\n"+
 		"	texel = texCoord;\n"+
 		"}\n",

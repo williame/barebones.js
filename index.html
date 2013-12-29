@@ -1,7 +1,9 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
-<head><title>barebones.js</title>
+<head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>barebones.js</title>
+<link rel="shortcut icon" href="data/favicon.ico" type='image/x-icon'/>
 
 <!-- https://github.com/williame/barebones.js project
 This file contains the basic HTML to show a full-page canvas can call an animation
@@ -707,7 +709,7 @@ window.requestAnimFrame =
 <body onload="init()">
 <div id="errWebWorkers" class="error" style="display: none;">Sorry, your browser does not support HTML5 web workers</div>
 <div id="errWebGL" class="error" style="display: none;">Sorry, could not initialize webGL</div>
-<div id="error" class="error" style="display:none;"></div>
+<div id="error" class="error" style="display:none; position:absolute;"></div>
 <noscript>
 <div class="error">Sorry, you don't have Javascript enabled :(</div>
 </noscript>

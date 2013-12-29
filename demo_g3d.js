@@ -43,6 +43,10 @@ function DemoG3D() {
 			name:"ornithopter",
 			file:"data/ornithopter_walking.g3d",
 		},
+		{
+			name:"normals test",
+			file:"data/g3d_advtex_sample/sample_animated.g3d",
+		},
 	];
 	this.model = this.models[0].g3d = new G3D(this.models[0].file);
 	this.viewMode = "3D";
@@ -85,13 +89,13 @@ DemoG3D.prototype = {
 		if(!this.model.ready) return;
 		var	now = window.now(), t = (now/1000)%1,
 			//invMvMatrix = mat4_inverse(this.uniforms.mvMatrix),
-			lightPos = [-0.5,1,1],
 			uniforms = {
 				__proto__: this.uniforms,
 				colour: OPAQUE,
 				fogColour: [0.2,0.2,0.2,1.0],
 				fogDensity: this.showNormals? 0: 0.02,
 				lightColour: this.showNormals? [1,0,0,1]: [1,1,1,1],
+				lightPos: [-0.5,1,1],
 				ambientLight: this.showNormals? [0,0.6,0,1]: [0.2,0.2,0.2,1],
 				diffuseLight: [0.6,0.6,0.6,1],
 				specularLight: [0,0,0.2,1],
@@ -141,11 +145,10 @@ DemoG3D.prototype = {
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_scale(1/Math.max.apply(Math,size)));
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_translation(vec3_neg(bounds[0])));
 		modelUniforms.mvMatrix = mat4_multiply(modelUniforms.mvMatrix,mat4_rotation(now/4000,[0,1,0]));
-		modelUniforms.lightPos = mat4_vec3_multiply(mat4_inverse(modelUniforms.mvMatrix),lightPos);
 		if(this.showNormals) {
 			this.model.draw(modelUniforms,t,true);
 			this.model.drawNormals(modelUniforms,t);
-			Sphere(2).draw(uniforms,vec3_vec4(lightPos,0.05),[0.8,0.7,0,1.0]);
+			Sphere(2).draw(uniforms,vec3_vec4(uniforms.lightPos,0.05),[0.8,0.7,0,1.0]);
 		} else
 			this.model.draw(modelUniforms,t);
 	},

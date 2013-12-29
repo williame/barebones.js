@@ -31,17 +31,35 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os, subprocess, base64, tempfile, shutil, sys
+import os, subprocess, base64, tempfile, shutil, sys, uuid, logging, time
 import tornado.ioloop
 import tornado.web
 from tornado.options import define, options, parse_command_line
 
-define("port",default=8888,type=int)
-define("branch",default="HEAD")
-define("enable_upload",default=None,multiple=True,type=str)
-define("access",type=str,multiple=True)
+options.define("port",default=8888,type=int)
+options.define("branch",default="HEAD")
+options.define("enable_upload",default=None,multiple=True,type=str)
+options.define("access",type=str,multiple=True)
+options.define("index_path",type=str,default="index.html")
+options.define("cookie_secret",type=str,default="barebones.js")
+
+log = []
+
+def now():
+    return time.strftime("%Y-%m-%d %H:%M:%S",time.gmtime())
+
+def _add_to_log(level,ctx,fmt,*args,**kwargs):
+    log.append((level,now(),ctx,fmt%args))
+    logging.log(level,fmt,*args,**kwargs)
+    
 
 class BaseHandler(tornado.web.RequestHandler):
+    def get_current_user(self):
+        user = self.get_secure_cookie("id")
+        if not user:
+            user = str(uuid.uuid4())
+            self.set_secure_cookie("id",user)
+        return user
     auth_user = None
     def check_auth(self,access=None):
         if access is None: access = options.access
@@ -59,21 +77,34 @@ class BaseHandler(tornado.web.RequestHandler):
         return self.get_argument("_hash",None)
     def check_path(self,path):
         # check not escaping chroot
-        if os.path.commonprefix([os.path.abspath(path),home]) != home:
+        path = os.path.abspath(path)
+        if os.path.commonprefix([path,home]) != home:
             raise tornado.web.HTTPError(403)
+        return os.path.relpath(path,home)
     def write_error(self,status_code,**kwargs):
         if status_code == 401:
             self.set_header("WWW-Authenticate","Basic realm=Restricted")
+        self.log_warning("%s",status_code)
         tornado.web.RequestHandler.write_error(self,status_code,**kwargs)
+    def log(self,level,fmt,*args,**kwargs):
+        _add_to_log(level,self._request_summary(),fmt,*args,**kwargs)
+    def log_error(self,fmt,*args,**kwargs):
+        self.log(logging.ERROR,fmt,*args,**kwargs)
+    def log_warning(self,fmt,*args,**kwargs):
+        self.log(logging.WARNING,fmt,*args,**kwargs)
+    def log_info(self,fmt,*args,**kwargs):
+        self.log(logging.INFO,fmt,*args,**kwargs)
     def _request_summary(self):
-        return self.request.method + " " + self.request.uri + \
-            " (" + self.request.remote_ip + ") "+(self.auth_user or "") 
+        return "%s %s (%s %s %s)" % (self.request.method,self.request.uri,
+            self.request.remote_ip,self.auth_user or "anon",self.current_user) 
 
 
 class MainHandler(BaseHandler):
     def get(self,path):
         self.check_auth()
-        self.check_path(path)
+        path = self.check_path(path)
+        if path == ".":
+            path = options.index_path
         body = None
         commit = self.get_commit_hash()
         if commit and commit in self.request.headers.get("If-None-Match",""):
@@ -85,7 +116,7 @@ class MainHandler(BaseHandler):
                 with open(path,"rb") as f:
                     body = f.read()
             except IOError as e:
-                print "An error occurred:",path,e
+                pass
         if not body:
             try:
                 body = subprocess.check_output(["git","show","%s:%s"%(commit or options.branch,path)])
@@ -106,6 +137,9 @@ class MainHandler(BaseHandler):
             self.set_header("Cache-Control","315360000")
         # serve it
         self.finish(body)
+        if path == options.index_path:
+            self.log_info("200 OK %s",content_type)
+
         
 class ZipBallHandler(BaseHandler):
     def get(self):
@@ -113,7 +147,9 @@ class ZipBallHandler(BaseHandler):
         body = subprocess.check_output(["git","archive","--format","zip",options.branch])
         self.set_header("Content-Type","application/zip")
         self.write(body)
+        self.log_info("200 OK")
         
+
 class UploadHandler(BaseHandler):
     def post(self):
         if not options.enable_upload:
@@ -132,7 +168,7 @@ class UploadHandler(BaseHandler):
         bodies = [upload["body"] for upload in files]
         # check out the repo to a temporary folder
         working_dir = tempfile.mkdtemp() if bare else home
-        print "user",user,"uploading",",".join(filenames),"(%d bytes)"%sum(len(body) for body in bodies),"using",working_dir,"..."
+        self.log_info("user %s uploading %s (%d bytes) using %s ....",user,",".join(filenames),sum(len(body) for body in bodies),working_dir)
         try:
             if bare:
                 os.chdir(working_dir)
@@ -149,15 +185,38 @@ class UploadHandler(BaseHandler):
                 if bare:
                     subprocess.check_call(["git","push","origin",options.branch])
             else:
-                print "(change to",",".join(filenames)," was no-op)"
+                self.log_info("(change to %s was no-op)",",".join(filenames))
         finally:
             if bare:
-                print "cleaning up",working_dir,"..."
+                self.log_info("cleaning up %s ...",working_dir)
                 os.chdir(home)
                 shutil.rmtree(working_dir)
                 
+
 class APIHandler(BaseHandler):
+    def get(self,entryPoint):
+        if entryPoint == "get_log":
+            self.write("<html><head><title>%s ~ tiny1web log</title>"%zipballFilename)
+            self.write('<style type="text/css">')
+            self.write(' body { font-family: "Helvetica Narrow","Arial Narrow",Tahoma,Arial,Helvetica,sans-serif; }')
+            self.write(" .L40 { background-color: crimson; color: yellow; font-weight: bold; }")
+            self.write(" .L30 { background-color: lightsalmon; }")
+            self.write(" .L20 { background-color: aliceblue; }")
+            self.write("</style></head>")
+            self.write("<body><table border=1>")
+            for entry in log:
+                self.write('<tr class="L%d">'%entry[0])
+                for column in entry[1:]:
+                    self.write("<td>%s</td>"%column)
+                self.write("</tr>")
+            self.write("</table><p>as at: %s</p></body></html>"%now())
+        else:
+            raise tornado.web.HTTPError(404)
     def post(self,entryPoint):
+        if entryPoint == "report_error":
+            return self.log_error(" ====== USER ERROR ======\n%s\n ========================",self.request.body)
+        elif entryPoint == "report_info":
+            return self.log_info(" ====== USER INFO ======\n%s\n ========================",self.request.body)
         self.check_auth()
         if entryPoint == "get_hash":
             if not bare:
@@ -175,16 +234,16 @@ if __name__ == "__main__":
     home = os.getcwd()
     bare = not os.path.isdir(".git")
     parse_command_line()
-    zipballFilename = r"/%s.zip"%(os.path.splitext(os.path.split(home)[1])[0])
+    zipballFilename = os.path.splitext(os.path.split(home)[1])[0]
     application = tornado.web.Application((
+        (r"/api/zip/%s.zip"%zipballFilename,ZipBallHandler),
         (r"/api/(.*)",APIHandler),
         (r"/upload",UploadHandler),
-        (zipballFilename,ZipBallHandler),
         (r"/(.*)",MainHandler),
-    ))
-    print "serving",options.branch,"on port",options.port,"(zipball is %s)"%zipballFilename
+    ), cookie_secret = options.cookie_secret)
+    _add_to_log(logging.INFO,"server","serving %s on port %d (zipball is /api/zip/%s.zip)",options.branch,options.port,zipballFilename)
     application.listen(options.port)
     try:
         tornado.ioloop.IOLoop.instance().start()
     except KeyboardInterrupt:
-        print "bye!"
+        _add_to_log(logging.INFO,"server","bye!")

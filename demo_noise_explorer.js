@@ -110,6 +110,7 @@ DemoNoiseExplorer.prototype = {
 		// give the GPU something to be doing
 		gl.clearColor(1,1,1,1);
 		gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+		var t = now();
 		// zooming to be done?
 		if(this.camera.zoomDiff) {
 			var elapsed = t - (this.lastRender || t), camera = this.camera;
@@ -123,6 +124,7 @@ DemoNoiseExplorer.prototype = {
 		// done
 		if(this.tool && this.tool.draw)
 			this.tool.draw();
+		this.lastRender = t;
 	},
 	_doDraw: function(program) {
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vertices);
