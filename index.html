@@ -49,8 +49,18 @@ body { border:0px;margin:0px;padding:0px; background-color: black; color: white;
 
 function game() { //### you replace this!  This is called when the framework has finished loading
 	var loader = Waiter(function() {
+		var setDemo = function(demo) {
+			if(game.demo && game.demo.hide)
+				game.demo.hide();
+			game.demo = demo;
+			if(demo) {
+				demo.layout();
+				demo.show();
+			}
+		};
 		game.menu = new UIWindow(false,new UIPanel([
 				new UILabel("demos"),
+				new UIButton("platformer",function() { setDemo(new DemoPlatformer()); }),
 				new UIButton("g3d models",function() { setDemo(new DemoG3D()); }),
 				new UIButton("grid terrain",function() { setDemo(new DemoGridTerrain()); }),
 				new UIButton("noise explorer",function() { setDemo(new DemoNoiseExplorer()); }),
@@ -59,7 +69,12 @@ function game() { //### you replace this!  This is called when the framework has
 		// intercept layouts so we can ensure we are always bottom-left of the screen
 		var layout = game.menu.performLayout;
 		game.menu.performLayout = function() {
-			layout.call(game.menu);
+			layout.apply(game.menu,arguments);
+			game.menu.ctrl.setPosVisible([0,canvas.height]);
+		};
+		var resize = game.menu.onResize;
+		game.menu.onResize = function() {
+			resize.apply(game.menu,arguments);
 			game.menu.ctrl.setPosVisible([0,canvas.height]);
 		};
 		game.menu.layout();
@@ -67,6 +82,7 @@ function game() { //### you replace this!  This is called when the framework has
 		// default demo
 		setDemo(new DemoGridTerrain());
 	});
+	loadFile("javascript","demo_platform.js",loader());
 	loadFile("javascript","barebones.js/g3d.js",loader());
 	loadFile("javascript","demo_g3d.js",loader());
 	loadFile("javascript","demo_grid_terrain.js",loader());
@@ -75,25 +91,8 @@ function game() { //### you replace this!  This is called when the framework has
 	loadFile("javascript","demo_noise_explorer.js",loader());
 }
 
-function setDemo(demo) { //### just test code
-	if(setDemo.demo)
-		setDemo.demo.hide(); // will get garbage-collected
-	setDemo.demo = demo;
-	if(demo) {
-		demo.layout();
-		demo.show();
-	}
-}
-
-function onResize(evt) { //### just test code so our demos can resize appropriately
-	if(game.menu)
-		game.menu.layout();
-	if(setDemo.demo && setDemo.demo.onResize)
-		setDemo.demo.onResize(evt);
-}
-
 </script>
-<body onload="init()">
+<body onload="init(document.getElementById('main-canvas'))">
 <div id="errWebWorkers" class="error" style="display: none;">Sorry, your browser does not support HTML5 web workers</div>
 <div id="errWebGL" class="error" style="display: none;">Sorry, could not initialize webGL</div>
 <div id="error" class="error" style="display:none; position:absolute;"></div>

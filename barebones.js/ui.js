@@ -530,9 +530,10 @@ UIWindow.prototype = {
 	_changeVisibility: function() {
 		if(this.showScheduled) {
 			this.showScheduled = false;
-			var alreadyShown = this.isShown();
-			if(alreadyShown)
+			if(this.isShown())
 				this.hide();
+			else
+				this.onResize();
 			if(this.modal) {
 				UI.windows.push(this);
 			} else {
@@ -545,8 +546,6 @@ UIWindow.prototype = {
 				}
 				UI.windows.unshift(this);
 			}
-			if(!alreadyShown)
-				this.onResize();
 		} else if(this.hideScheduled) {
 			this.hideScheduled = false;
 			var idx = UI.windows.indexOf(this);

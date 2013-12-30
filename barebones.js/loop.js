@@ -2,14 +2,14 @@
 
 var gl, canvas, splash, audio, keys = {}, loading = true, mousePos = [-1,-1], cacheHash, unhandledEventHandler;
 
-function init() {
+function init(canvas) {
 	if(fail.error) {
 		console.log("barebones.js failed to load properly");
 		return;
 	}
+	window.canvas = canvas;
 	try {
 		console.log("barebones.js is initing...");
-		canvas = document.getElementById("main-canvas");
 		try {
 			var params = {
 				alpha: false,
@@ -152,10 +152,12 @@ function init() {
 				canvas.addEventListener("mousewheel",onMouseWheel,true); //chrome
 				canvas.addEventListener("DOMMouseScroll",onMouseWheel,true); //FF
 				canvas.addEventListener("contextmenu",onContextMenu,true);
-				document.addEventListener("keydown",onKeyDown,true);
-				document.addEventListener("keyup",onKeyUp,true);
+				canvas.addEventListener("keydown",onKeyDown,true);
+				canvas.addEventListener("keyup",onKeyUp,true);
 				canvas.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
-				window.focus();
+				if(!canvas.tabIndex <= 0)
+					canvas.tabIndex = 1;
+				canvas.focus();
 				// splash
 				var splashCtrl = new UIComponent();
 				loadFile("image","data/logo.png",function() { splashCtrl.dirty(); });

@@ -1005,6 +1005,46 @@ function vec2_dot(a,b) {
 	return [a[0]*b[0]+a[1]*b[1]];
 }
 
+function vec2_neg(v) {
+	return [-v[0],-v[1]];
+}
+
+function rect(x1,y1,x2,y2) {
+	return [x1,y1,x2,y2];
+}
+
+function rect_size(r) {
+	return [r[2]-r[0],r[3]-r[1]];
+}
+
+function rect_half_size(r) {
+	return [(r[2]-r[0])/2, (r[3]-r[1])/2];
+}
+
+function rect_centre(r) {
+	return [(r[0]+r[2])/2, (r[1]+r[3])/2];
+}
+
+function rect_contains_vec2(r,v) {
+	return v[0] >= r[0] && v[0] < r[2] &&
+		v[1] >= r[1] && v[1] < r[3];
+}
+
+function rect_contains_rect(outer,inner) {
+	return outer[0] <= inner[0] &&
+		outer[1] <= inner[1] &&
+		outer[2] >= inner[2] &&
+		outer[3] >= inner[3];
+}
+
+function rect_intersects_rect(a,b) {
+	  return !(a[2]<b[0] || a[0]>b[2] || a[3]<b[1] || a[1]>b[3]);
+}
+
+function rect_add_vec2(r,v) {
+	return [r[0]+v[0],r[1]+v[1],r[2]+v[0],r[3]+v[1]];
+}
+
 function vec2_distance_sqrd(a,b) {
 	var d = vec2_sub(a,b);
 	return d[0]*d[0] + d[1]*d[1];
