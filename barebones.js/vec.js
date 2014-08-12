@@ -1050,6 +1050,10 @@ function vec2_distance_sqrd(a,b) {
 	return d[0]*d[0] + d[1]*d[1];
 }
 
+function vec2_length(v) {
+	return Math.sqrt(v[0]*v[0] + v[1]*v[1]);
+}
+
 function vec2_scale(v,f) {
 	return [v[0]*f,v[1]*f];
 }

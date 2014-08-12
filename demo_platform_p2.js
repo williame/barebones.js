@@ -38,7 +38,7 @@ function BodyP2() {
 		saved_mvp = mvp;
 		var trans = mat4_multiply(mvp, mat4_translation(self.position));
 		if(self.angle)
-			trans = mat4_multiply(trans, mat4_rotation(self.angle, [0, 0, 1]));
+			trans = mat4_multiply(trans, mat4_rotation(-self.angle, [0, 0, 1]));
 		return trans;
 	};
 	this.end_render = function(mvp) {
@@ -57,12 +57,38 @@ BodyP2.prototype = {
 			if(shape.vertices) {
 				ctx.fillRect(this.colour,-shape.width/2,-shape.height/2,shape.width/2,shape.height/2);
 				//ctx.fillConvexPolygon(this.colour,shape.vertices);
+			} else if(shape instanceof p2.Plane) {
+				ctx.fillRect(this.colour,-10000, -10, 10000, 0);
 			} else
 				console.log("cannot draw shape", this, shape);
 		}
 		ctx.transform(this.end_render);	
 	},
 };
+
+function make_chain(world, material, pos, len, num_links) {
+	var prev = null;
+	for(var i=0; i<num_links; i++) {
+		var link = new BodyP2({
+			mass: prev? (num_links-i) * (i/num_links): 0,
+			position: [pos[0], pos[1] - i * len],
+		});
+		var shape = new p2.Rectangle(len/5, len);
+		shape.material = material || new p2.Material();
+		link.addShape(shape);
+		world.addBody(link);
+		if(prev) {
+			var constraint = new p2.RevoluteConstraint(link, prev, {
+				localPivotA: [0, len/2],
+				localPivotB: [0, -len/2],
+			});
+			constraint.setLimits(-0.5, 0.5);
+			world.addConstraint(constraint);
+				
+		}
+		prev = link;
+	}
+}
 
 function DemoPlatformerP2() {
 	UIComponent.call(this,this);
@@ -79,8 +105,8 @@ function DemoPlatformerP2() {
 		} else if(keys[39] && !keys[37]) { // right
 			facing = 1;
 			characterBody.velocity[0] = walkSpeed;
-		} else
-			characterBody.velocity[0] = 0;
+		} //else
+		//	characterBody.velocity[0] = 0;
 		if(airborne) {
 			for(var i in world.narrowphase.contactEquations) {
 				var c = world.narrowphase.contactEquations[i];
@@ -91,7 +117,7 @@ function DemoPlatformerP2() {
 						x *= -1;
 						y *= -1;
 					}
-					if(y > 0) { // touched down; 0 == side
+					if(y >= 0) { // touched down; 0 == side
 						console.log("touched down", x, y);
 						airborne = false;
 						break;
@@ -124,7 +150,9 @@ function DemoPlatformerP2() {
 				characterBody.velocity[1] = jumpSpeed;
 			}
 		}
-		this.lastTick = t;
+		for(var i=0; i<movingPlatforms.length; i++)
+			movingPlatforms[i].velocity[0] = Math.sin(now * 0.001) * 10;
+		this.lastTick = now;
 		self.world.step(1/60, lastStep);
 		lastStep = now;
 		win_draw.apply(win, arguments);
@@ -135,8 +163,8 @@ function DemoPlatformerP2() {
 	
 	// Init world
 	var world = this.world = new p2.World();
-	world.defaultContactMaterial.friction = 0.5;
-	world.setGlobalStiffness(1e5);
+	//world.defaultContactMaterial.friction = 0.5;
+	//world.setGlobalStiffness(1e5);
 	// Init materials
 	var	groundMaterial = new p2.Material(),
 		    characterMaterial = new p2.Material(),
@@ -155,12 +183,14 @@ function DemoPlatformerP2() {
 	// Add a ground plane
 	var planeShape = new p2.Plane();
 	var planeBody = new BodyP2({
-		position:[0,100]
+		position:[0,100],
 	});
 	planeBody.addShape(planeShape);
 	world.addBody(planeBody);
 	planeShape.material = groundMaterial;
-	var	platformPositions = [[500,200],[600,180],[700,210],[800,100]],
+	// some platforms
+	var	movingPlatforms = [],
+		platformPositions = [[500,200],[600,180],[700,210],[800,100]],
 		platformShape = new p2.Rectangle(50,25),
 		boxShape = new p2.Rectangle(20,20);
 	for(var i=0; i<platformPositions.length; i++) {
@@ -171,6 +201,8 @@ function DemoPlatformerP2() {
 		platformBody.type = p2.Body.KINEMATIC;
 		platformBody.addShape(platformShape);
 		world.addBody(platformBody);
+		if(i % 2 == 0)
+			movingPlatforms.push(platformBody);
 		var boxBody = new BodyP2({
 			mass: 1,
 			angle: Math.random(), 
@@ -181,19 +213,19 @@ function DemoPlatformerP2() {
 	}
 	platformShape.material = groundMaterial;
 	boxShape.material = boxMaterial;
+	// chains
+	make_chain(world, groundMaterial, [900,400], 10, 25);
+	make_chain(world, groundMaterial, [1000,400], 10, 25);
 	// Init contactmaterials
-	var groundCharacterCM = new p2.ContactMaterial(groundMaterial, characterMaterial,{
-		friction : 0.0, // No friction between character and ground
-	});
-	var boxCharacterCM = new p2.ContactMaterial(boxMaterial, characterMaterial,{
-		friction : 0.0, // No friction between character and boxes
-	});
-	var boxGroundCM = new p2.ContactMaterial(boxMaterial, groundMaterial,{
-		friction : 0.6, // Between boxes and ground
-	});
-	world.addContactMaterial(groundCharacterCM);
-	world.addContactMaterial(boxCharacterCM);
-	world.addContactMaterial(boxGroundCM);
+	world.addContactMaterial(new p2.ContactMaterial(groundMaterial, characterMaterial, {
+		friction: 3.0, // No friction between character and ground
+	}));
+	world.addContactMaterial(new p2.ContactMaterial(boxMaterial, characterMaterial, {
+		friction: 0.0, // No friction between character and boxes
+	}));
+	world.addContactMaterial(new p2.ContactMaterial(boxMaterial, groundMaterial, {
+		friction: 0.6, // Between boxes and ground
+	}));
 }
 
 DemoPlatformerP2.prototype = {
