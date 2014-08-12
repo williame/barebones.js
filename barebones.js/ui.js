@@ -217,15 +217,23 @@ UIContext.prototype = {
 	measureText: function(font,text) { return font? font.measureText(text): [0,0]; },
 	drawRect: function(texture,colour,x1,y1,x2,y2,tx1,ty1,tx2,ty2) {
 		this.set(texture,colour,gl.TRIANGLES);
-		this.data = this.data.concat([
+		this.data.push(
 			x1,y2,tx1,ty2, x2,y1,tx2,ty1, x1,y1,tx1,ty1, //CCW
-			x2,y2,tx2,ty2, x2,y1,tx2,ty1, x1,y2,tx1,ty2]);
+			x2,y2,tx2,ty2, x2,y1,tx2,ty1, x1,y2,tx1,ty2);
 	},
 	drawQuad: function(texture,colour,a,b,c,d,ta,tb,tc,td) {
 		this.set(texture,colour,gl.TRIANGLES);
-		this.data = this.data.concat([
+		this.data.push(
 			b[0],b[1],tb[0],tb[1], a[0],a[1],ta[0],ta[1], c[0],c[1],tc[0],tc[1], //CCW
-			b[0],b[1],tb[0],tb[1], c[0],c[1],tc[0],tc[1], d[0],d[1],td[0],td[1]]);
+			b[0],b[1],tb[0],tb[1], c[0],c[1],tc[0],tc[1], d[0],d[1],td[0],td[1]);
+	},
+	fillConvexPolygon: function(colour,vertices) {
+		this.set(programs.blankTex,colour,gl.TRIANGLES);
+		var ox = vertices[0][0], oy = vertices[0][1];
+		for(var i=1; i<vertices.length-1; i++)
+			this.data.push(ox,oy,0,0,
+				vertices[i][0],vertices[i][1],0,1,
+				vertices[i+1][0],vertices[i+1][1],1,1);
 	},
 	fillRect: function(colour,x1,y1,x2,y2) {
 		this.drawRect(programs.blankTex,colour,x1,y1,x2,y2,0,0,1,1);
@@ -233,20 +241,19 @@ UIContext.prototype = {
 	drawLine: function(colour,x1,y1,x2,y2,width) {
 		if(!width) {
 			this.set(programs.blankTex,colour,gl.LINES);
-			this.data = this.data.concat([x1,y1,0,0,x2,y2,1,1]);
+			this.data.push(x1,y1,0,0,x2,y2,1,1);
 		} else {
 			this.set(programs.blankTex,colour,gl.TRIANGLES);
 			var	angle = Math.atan2(y2 - y1, x2 - x1),
 				cos = width/2 * Math.cos(angle),
 				sin = width/2 * Math.sin(angle);
-			this.data = this.data.concat([
+			this.data.push(
 			    x1 + sin, y1 - cos, 1, 0,
 			    x2 + sin, y2 - cos, 1, 0,
 			    x2 - sin, y2 + cos, 0, 1,
 			    x2 - sin, y2 + cos, 0, 1,
 			    x1 - sin, y1 + cos, 0, 1,
-			    x1 + sin, y1 - cos, 1, 0,
-			]);
+			    x1 + sin, y1 - cos, 1, 0);
 		}
 		return this;
 	},
@@ -287,7 +294,7 @@ UIContext.prototype = {
 		drawRect.call(this,programs.blankTex,colour,x1,y1-margin,x2,y2+margin,0,0,1,1); // sets up right texture and colour buffer
 		drawRect.call(this,programs.blankTex,colour,x1-margin,y1,x1,y2,0,0,1,1);
 		drawRect.call(this,programs.blankTex,colour,x2,y1,x2+margin,y2,0,0,1,1);
-		this.data = this.data.concat(pts);
+		this.data.push.apply(this.data,pts);
 	},
 	_fillRoundedRect_addPoint: function(pts,pt,x,xdir,y,ydir) {
 		pts.push(
@@ -316,7 +323,7 @@ UIContext.prototype = {
 		drawRect.call(programs.blankTex,colour,x1,y2+margin-width,x2,y2+margin,0,0,1,1);
 		drawRect.call(programs.blankTex,colour,x1-margin,y1,x1-margin+width,y2,0,0,1,1);
 		drawRect.call(programs.blankTex,colour,x2+margin-width,y1,x2+margin,y2,0,0,1,1);
-		this.data = this.data.concat(pts);
+		this.data.apply(this.data,pts);
 	},
 	_drawRoundedRect_addPoint: function(pts,scale,pt,x,xdir,y,ydir) {
 		pts.push(
@@ -424,9 +431,10 @@ UIContext.prototype = {
 		gl.useProgram(null);
 	},
 	draw: function(mvp,program,colour) {
+		this.mvp = mvp;
 		program = program || UIContext.program;
 		this.drawCount++;
-		var inited = false;
+		var inited = false, len;
 		for(var buffer in this.buffers) {
 			buffer = this.buffers[buffer];
 			if(buffer.inject) {
@@ -435,32 +443,30 @@ UIContext.prototype = {
 					inited = false;
 				}
 				buffer.inject.apply(this,buffer.injectArgs);
-				continue;
 			} else if(buffer.transform) {
-				mvp = buffer.transformArgs?
+				this.mvp = mvp = buffer.transformArgs?
 					buffer.transform.apply(this,[mvp].concat(buffer.transformArgs)):
 					buffer.transform.call(this,mvp);
 				if(inited)
 					gl.uniformMatrix4fv(program.mvp,false,mvp);
-				continue;
+			} else if(len = (buffer.stop >= 0? buffer.stop: this.data)-buffer.start) {
+				if(!inited) {
+					this._initShader(mvp,program);
+					inited = true;
+				}
+				gl.bindTexture(gl.TEXTURE_2D,buffer.texture);
+				if(colour)
+					gl.uniform4fv(program.colour,[buffer.colour[0]*colour[0],buffer.colour[1]*colour[1],buffer.colour[2]*colour[2],buffer.colour[3]*colour[3]]);
+				else
+					gl.uniform4fv(program.colour,buffer.colour);
+				gl.vertexAttribPointer(program.vertex,2,gl.FLOAT,false,16,0);
+				gl.vertexAttribPointer(program.texcoord,2,gl.FLOAT,false,16,8);
+				gl.drawArrays(buffer.mode,buffer.start/4,len/4);
 			}
-			var len = (buffer.stop >= 0? buffer.stop: this.data)-buffer.start;
-			if(!len) continue;
-			if(!inited) {
-				this._initShader(mvp,program);
-				inited = true;
-			}
-			gl.bindTexture(gl.TEXTURE_2D,buffer.texture);
-			if(colour)
-				gl.uniform4fv(program.colour,[buffer.colour[0]*colour[0],buffer.colour[1]*colour[1],buffer.colour[2]*colour[2],buffer.colour[3]*colour[3]]);
-			else
-				gl.uniform4fv(program.colour,buffer.colour);
-			gl.vertexAttribPointer(program.vertex,2,gl.FLOAT,false,16,0);
-			gl.vertexAttribPointer(program.texcoord,2,gl.FLOAT,false,16,8);
-			gl.drawArrays(buffer.mode,buffer.start/4,len/4);
 		}
 		if(inited)
 			this._deinitShader(program);
+		this.mvp = null;
 	},
 };
 
@@ -481,12 +487,15 @@ function UIWindow(modal,ctrl,tag) {
 };
 UIWindow.prototype = {
 	dirty: function() { this.isDirty = true; },
+	getProjectionMatrix: function() {
+		return createOrtho2D(0,this.ctx.width,this.ctx.height,0);
+	},
 	draw: function(canvas) {
 		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight || !this.mvp) {
 			this.ctx.width = canvas.offsetWidth;
 			this.ctx.height = canvas.offsetHeight;
 			this.isDirty = true;
-			this.mvp = new Float32Array(createOrtho2D(0,this.ctx.width,this.ctx.height,0));
+			this.mvp = new Float32Array(this.getProjectionMatrix());
 		}
 		if(this.needsLayout)
 			this.performLayout();
