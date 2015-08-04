@@ -180,6 +180,9 @@ function DemoPlatformerP2() {
 	world.addBody(characterBody);
 	characterShape.material = characterMaterial;
 	characterBody.damping = 0.3;
+	world.on("beginContact", function() { console.log("begin contact", arguments); });
+	world.on("endContact", function() { console.log("end contact", arguments); });
+	world.on("impact", function() { console.log("impact", arguments); });
 	// Add a ground plane
 	var planeShape = new p2.Plane();
 	var planeBody = new BodyP2({

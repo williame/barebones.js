@@ -246,6 +246,18 @@ function vec4_scale(v,f) {
 	return [v[0]*f,v[1]*f,v[2]*f,v[3]*f];
 }
 
+function vec4_lerp(a,b,k) {
+	return vec4_add(a,vec4_scale(vec4_sub(b,a),k));
+}
+
+function vec4_add(a,b) {
+	return [a[0]+b[0],a[1]+b[1],a[2]+b[2],a[3]+b[3]];
+}
+
+function vec4_sub(a,b) {
+	return [a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]];
+}
+
 function vec4_normalise(v) {
 	return vec4_scale(v,1/(vec3_length(v)||1));
 }
@@ -1050,6 +1062,10 @@ function vec2_distance_sqrd(a,b) {
 	return d[0]*d[0] + d[1]*d[1];
 }
 
+function vec2_distance(a,b) {
+	return Math.sqrt(vec2_distance_sqrd(a,b));
+}
+
 function vec2_length(v) {
 	return Math.sqrt(v[0]*v[0] + v[1]*v[1]);
 }
@@ -1077,4 +1093,12 @@ function roundUp(num) {
 
 function sign(num) {
 	return num<0? -1: 1;
+}
+
+function colour_from_hex(hex) {
+	if(hex[0] === "#") hex = hex.substring(1);
+	return [parseInt(hex.substring(0,2),16)/256,
+		parseInt(hex.substring(2,4),16)/256,
+		parseInt(hex.substring(4,6),16)/256,
+		hex.length > 6? parseInt(hex.substring(6,8),16)/256: 1];
 }

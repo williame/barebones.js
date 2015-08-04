@@ -133,6 +133,7 @@ function UIContext() {
 			"void main() {\n"+
 			"	vec4 c = texture2D(texture,tx);\n"+
 			"	gl_FragColor = colour * c;\n"+
+			"	if(gl_FragColor.a < 0.3) discard;\n"+
 			"}");
 };
 UIContext.corners = {};
@@ -145,7 +146,8 @@ UIContext.prototype = {
 		return this.buffers.length == 0;
 	},
 	finish: function() {
-		if(!this.vbo) this.vbo = gl.createBuffer();
+		if(!this.vbo)
+			this.vbo = gl.createBuffer();
 		if(this.data.length) {
 			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(this.data),gl.STATIC_DRAW);
@@ -431,7 +433,8 @@ UIContext.prototype = {
 		gl.useProgram(null);
 	},
 	draw: function(mvp,program,colour) {
-		this.mvp = mvp;
+		assert(this.vbo);
+		this.mvp = mvp = mvp || createOrtho2D(0,this.width || canvas.width,this.height || canvas.height,0);
 		program = program || UIContext.program;
 		this.drawCount++;
 		var inited = false, len;
@@ -875,7 +878,10 @@ UIComponent.prototype = {
 			}
 			this.setSize(this.preferredSize());
 		}
+		if(this.afterLayout)
+			this.afterLayout();
 	},
+	afterLayout: null,
 	draw: function(ctx) {},
 	drawBg: function(ctx) {
 		var	border = this.border,
@@ -1100,6 +1106,29 @@ UICtrlIcon.prototype = {
 	},
 };
 loadFile("image","data/ctrl_icons.png",function(tex) { UICtrlIcon.prototype.tex = tex; });
+
+function UIImage(path) {
+	UIComponent.call(this);
+	this.image = null;
+	this.setImage(path);
+}
+UIImage.prototype = {
+	__proto__: UIComponent.prototype,
+	preferredSize: function() {
+		var im = this.image;
+		return [im? im.width: 0, im? im.height: 0];
+	},
+	setImage: function(path) {
+		var self = this;
+		loadFile("image", path, function(image) { self.image = image; self.layout(); });
+	},
+	draw: function(ctx) {
+		if(!this.image) return;
+		ctx.drawRect(this.image,this.getFgColour(),
+			this.x1,this.y1,this.x2,this.y2,
+			0,0,1,1);
+	},
+};
 
 function UIButton(text,onClick,tag,leftIcon,rightIcon) {
 	this.label = new UILabel(text,UI.defaults.btn.txtOutline);

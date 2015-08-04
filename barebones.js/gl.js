@@ -131,7 +131,8 @@ function Program(vertexShader,fragmentShader) {
 		owner = function() {
 			var e = new Error();
 			if(!e.stack) try { throw e; } catch(_) {}
-			return e.stack.split("\n")[3].replace(/^\s+|\s+$/g,'');
+			var split = e.stack && e.stack.split? e.stack.split("\n"): [];
+			return split[3]? split[3].replace(/^\s+|\s+$/g,''): e.stack || "<no stack available>";
 		}();
 	return function(cb,uniforms,self) {
 		assert(typeof cb === "function");

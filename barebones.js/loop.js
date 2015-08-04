@@ -9,12 +9,19 @@ function init(canvas) {
 	}
 	window.canvas = canvas;
 	try {
+		document.getElementById("errLoading").style.display = "none";
+		if("https:" === window.location.protocol) {
+			console.log(window.location);
+			document.getElementById("errHttps").style.display = "block";
+			return;
+		}
 		console.log("barebones.js is initing...");
 		try {
 			var params = {
 				alpha: false,
 				premultipliedAlpha: false,
 				stencil: true,
+				antialias: true,
 			};
 			gl = canvas.getContext("webgl",params) || canvas.getContext("experimental-webgl",params);
 		} catch(e) {
@@ -49,7 +56,8 @@ function init(canvas) {
 			handleEvent("onResize",evt);
 		};
 		window.onresize();
-		var audioFactory = window.audioContext || window.webkitAudioContext || window.mozAudioContext;
+		var audioFactory = window.audioContext || window.AudioContext || window.webkitAudioContext || window.mozAudioContext;
+		console.log("audioFactory", audioFactory);
 		if(audioFactory)
 			audio = new audioFactory();
 		var	isMouseDown = false,
@@ -160,13 +168,15 @@ function init(canvas) {
 				canvas.focus();
 				// splash
 				var splashCtrl = new UIComponent();
-				loadFile("image","data/logo.png",function() { splashCtrl.dirty(); });
+				if(window.logo_filename)
+					loadFile("image",logo_filename,function() { splashCtrl.dirty(); });
 				splashCtrl.setSize([canvas.width,canvas.height]);
 				splashCtrl.draw = function(ctx) {
 					var font = splashCtrl.getFont(), alpha = splash.alpha;
 					drawLogo(ctx,alpha);
 					if(!font) return;
-					var	label = "loading...",
+					if(!window.loading_message) return;
+					var	label = window.loading_message,
 						sz = ctx.measureText(font,label),
 						x = (canvas.width-sz[0])*0.5,
 						y = (canvas.height-sz[1])*0.75;
@@ -176,6 +186,8 @@ function init(canvas) {
 				splash = new UIWindow(false,splashCtrl);
 				splash.alpha = 1;
 				window.requestAnimFrame(loadLoop);
+				if(!audio)
+					UI.addMessage("Sorry, you don't have HTML5 Audio :(");
 				// hand over to game
 				window.focus();
 				loading = false; // game can set it to true again if they want to keep splash
@@ -208,7 +220,7 @@ function init(canvas) {
 function drawLogo(ctx,alpha) {
 	ctx.clear();
 	ctx.fillRect([0,0,0,alpha],0,0,canvas.width,canvas.height);
-	var logo = getFile("image","data/logo.png");
+	var logo = window.logo_filename? getFile("image",logo_filename): null;
 	if(logo) {
 		var	x = (canvas.width-logo.width)/2,
 			y = (canvas.height-logo.height)/2;
@@ -252,7 +264,8 @@ function loadLoop() {
 	try {
 		if(!loading || (window.isLoadingComplete && window.isLoadingComplete())) {
 			loading = false;
-			splash.fade = now();
+			if(splash)
+				splash.fade = now();
 			loop();
 			return;
 		}
@@ -273,9 +286,8 @@ function randomSound(list,volume) {
 		playSound(choose(list),volume);
 }
 
-function playSound(clip,volume) {
-	if(!clip) return;
-	try {
+function createSound(clip,volume) {
+	if(clip && audio) try {
 		var source = audio.createBufferSource();
 		source.buffer = clip;
 		if(volume) {
@@ -285,10 +297,19 @@ function playSound(clip,volume) {
 			gainNode.gain.value = volume;
 		} else
 			source.connect(audio.destination);
-		source.noteOn(0);
+		return source;
 	} catch(error) {
 		// not fatal
 		console.log("ERROR playing sound: "+clip+": "+error);
+	}
+	console.log("failed to create sound!", clip, audio);
+	return null;
+}
+
+function playSound(clip,volume) {
+	var sound = createSound(clip,volume);
+	if(sound) {
+		sound.start? sound.start(): sound.noteOn(0);
 	}
 }
 
