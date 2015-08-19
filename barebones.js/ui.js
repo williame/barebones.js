@@ -494,9 +494,9 @@ UIWindow.prototype = {
 		return createOrtho2D(0,this.ctx.width,this.ctx.height,0);
 	},
 	draw: function(canvas) {
-		if(this.ctx.width != canvas.offsetWidth || this.ctx.height != canvas.offsetHeight || !this.mvp) {
-			this.ctx.width = canvas.offsetWidth;
-			this.ctx.height = canvas.offsetHeight;
+		if(this.ctx.width != canvas.width || this.ctx.height != canvas.height || !this.mvp) {
+			this.ctx.width = canvas.width;
+			this.ctx.height = canvas.height;
 			this.isDirty = true;
 			this.mvp = new Float32Array(this.getProjectionMatrix());
 		}
@@ -578,6 +578,9 @@ UIWindow.prototype = {
 		this.showScheduled = true;
 		this.hideScheduled = false;
 		schedule(function() { self._changeVisibility(); });
+	},
+	setVisible: function(show) {
+		if(show) this.show(); else this.hide();
 	},
 	dismiss: function() {
 		if(this.modal && this.isShown()) {
@@ -1222,7 +1225,7 @@ UIViewport.prototype = {
 		this.setViewport();
 	},
 	mouseRay: function(evt) {
-		return unproject(evt.clientX,canvas.height-evt.clientY,
+		return unproject(mousePos[0],canvas.height-mousePos[1],
 			this.uniforms.mvMatrix,this.uniforms.pMatrix,
 			this.viewport);
 	},

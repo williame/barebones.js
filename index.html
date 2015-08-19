@@ -59,6 +59,7 @@ function game() { //### you replace this!  This is called when the framework has
 				demo.show();
 			}
 		};
+		window.perf = new Perf(128);
 		game.menu = new UIWindow(false,new UIPanel([
 				new UILabel("demos"),
 				new UIButton("platformer",function() { setDemo(new DemoPlatformer()); }),
@@ -66,6 +67,16 @@ function game() { //### you replace this!  This is called when the framework has
 				new UIButton("g3d models",function() { setDemo(new DemoG3D()); }),
 				new UIButton("grid terrain",function() { setDemo(new DemoGridTerrain()); }),
 				new UIButton("noise explorer",function() { setDemo(new DemoNoiseExplorer()); }),
+				new UILabel("perf"),
+				new UICheckbox("show fps",function() { window.perf.window().setVisible(this.isChecked()); }),
+				new UICheckbox("640x480", function() {
+					if(this.isChecked()) {
+						window.fixedWidth = 640; window.fixedHeight = 480;
+					} else {
+						window.fixedWidth = 0; window.fixedHeight = 0;
+					}
+					window.onresize();
+				}),
 			],UILayoutRows));
 		game.menu.ctrl.allowClickThru = false;
 		// intercept layouts so we can ensure we are always bottom-left of the screen

@@ -49,9 +49,14 @@ function init(canvas) {
 		};
 		window.onresize = function(evt) {
 			canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
-			canvas.width = canvas.offsetWidth;
-			canvas.height = canvas.offsetHeight;
-			gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
+			canvas.width = window.fixedWidth || canvas.offsetWidth;
+			canvas.height = window.fixedHeight || canvas.offsetHeight;
+			window.mouseScaleX = canvas.width / canvas.offsetWidth;
+			window.mouseScaleY = canvas.height / canvas.offsetHeight;
+			console.log("canvas offset(" + canvas.offsetWidth + "x" + canvas.offsetHeight + "), " + 
+				"size(" + canvas.width + "x" + canvas.height + "), " +
+				"mouse(" + window.mouseScaleX + " x " + window.mouseScaleY + ")");
+			gl.viewport(0,0,canvas.width,canvas.height);
 			if(splash) splash.dirty();
 			handleEvent("onResize",evt);
 		};
@@ -61,25 +66,28 @@ function init(canvas) {
 		if(audioFactory)
 			audio = new audioFactory();
 		var	isMouseDown = false,
-			onMouseDown = function(evt) {
+			mouseEvent = function(evt) {
 				evt.cancelBubble = true;
 				evt.preventDefault();
+				mousePos = [(evt.pageX-evt.target.offsetLeft)*window.mouseScaleX,
+					(evt.pageY-evt.target.offsetTop)*window.mouseScaleY];
+				return evt.target === canvas;
+			},
+			onMouseDown = function(evt) {
 				isMouseDown = true;
-				mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
-				if(evt.target !== canvas)
-					return false;
-				handleEvent("onMouseDown",evt,keys);
-				schedule.run();
+				if(mouseEvent(evt)) {
+					console.log("mouse(" + mousePos[0] + ", " + mousePos[1] + ") from (" +
+						(evt.pageX-evt.target.offsetLeft) + ", " + (evt.pageY-evt.target.offsetTop) + ")");
+					handleEvent("onMouseDown",evt,keys);
+					schedule.run();
+				}
 				return false;
 			},
 			onMouseMove = function(evt) {
-				evt.cancelBubble = true;
-				evt.preventDefault();
-				mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
-				if(evt.target !== canvas)
-					return;
-				handleEvent("onMouseMove",evt,keys,isMouseDown);
-				schedule.run();
+				if(mouseEvent(evt)) {
+					handleEvent("onMouseMove",evt,keys,isMouseDown);
+					schedule.run();
+				}
 			},
 			onMouseOver = function(evt) {
 				evt.cancelBubble = true;
@@ -98,23 +106,18 @@ function init(canvas) {
 				mousePos = null;
 			},
 			onMouseUp = function(evt) {
-				evt.cancelBubble = true;
 				isMouseDown = false;
-				mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
-				if(evt.target !== canvas)
-					return false;
-				handleEvent("onMouseUp",evt,keys);
-				schedule.run();
+				if(mouseEvent(evt)) {
+					handleEvent("onMouseUp",evt,keys);
+					schedule.run();
+				}
 				return false;
 			},
 			onContextMenu = function(evt) {
-				evt.cancelBubble = true;
-				evt.preventDefault();
-				mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
-				if(evt.target !== canvas)
-					return false;
-				handleEvent("onContextMenu",evt,keys);
-				schedule.run();
+				if(mouseEvent(evt)) {
+					handleEvent("onContextMenu",evt,keys);
+					schedule.run();
+				}
 				return false;
 			},
 			onKeyDown = function(evt) {
@@ -138,18 +141,17 @@ function init(canvas) {
 				return false;
 			},
 			onMouseWheel = function(evt) {
-				evt.cancelBubble = true;
-				evt.preventDefault();
-				mousePos = [evt.pageX-evt.target.offsetLeft,evt.pageY-evt.target.offsetTop];
-				// http://stackoverflow.com/questions/5527601/normalizing-mousewheel-speed-across-browsers
-				var d = evt.detail, w = evt.wheelDelta;
-				// Normalize delta
-				d = d ? w && (f = w/d) ? d/f : -d/1.35 : w/120;
-				// Quadratic scale if |d| > 1
-				d = d < 1 ? d < -1 ? (-Math.pow(d, 2) - 255) / 255 : d : (Math.pow(d, 2) + 254) / 255;
-				// Delta *should* not be greater than 2...
-				d = Math.min(Math.max(d / 2, -1), 1);
-				handleEvent("onMouseWheel",evt,d*100);
+				if(mouseEvent(evt)) {
+					// http://stackoverflow.com/questions/5527601/normalizing-mousewheel-speed-across-browsers
+					var d = evt.detail, w = evt.wheelDelta;
+					// Normalize delta
+					d = d ? w && (f = w/d) ? d/f : -d/1.35 : w/120;
+					// Quadratic scale if |d| > 1
+					d = d < 1 ? d < -1 ? (-Math.pow(d, 2) - 255) / 255 : d : (Math.pow(d, 2) + 254) / 255;
+					// Delta *should* not be greater than 2...
+					d = Math.min(Math.max(d / 2, -1), 1);
+					handleEvent("onMouseWheel",evt,d*100);
+				}
 			};
 		var loaded = Waiter(function() {
 				canvas.addEventListener("mousedown",onMouseDown,true);
