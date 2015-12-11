@@ -517,27 +517,25 @@ UIWindow.prototype = {
 			return false;
 		ctrl.isDirty = false;
 		ctrl.draw(this.ctx);
-		return true;
 	},
 	walk: function(cb,ctrl) {
 		ctrl = ctrl || this.ctrl;
 		if(!ctrl) return;
-		if(cb.call(this,ctrl)) {
-			for(var child in ctrl.children) {
-				child = ctrl.children[child];
-				if(child)
-					this.walk(cb,child);
+		var ret = cb.call(this,ctrl);
+		for(var child in ctrl.children) {
+			child = ctrl.children[child];
+			if(child && !ret) {
+				ret = this.walk(cb,child);
 			}
 		}
+		return ret;
 	},
 	find: function(tag) {
-		var ret = null;
-		this.walk(function(ctrl) {
+		return this.walk(function(ctrl) {
 			if(ctrl && ctrl.tag && ctrl.tag == tag)
-				ret = ctrl;
-			return !ret;
+				return ctrl;
+			return null;
 		});
-		return ret;
 	},
 	_changeVisibility: function() {
 		if(this.showScheduled) {
@@ -653,6 +651,7 @@ var UI = {
 				if(callback)
 					callback(UI.fonts[name]);
 				window.setTimeout(Callback(window,window.onresize),0);
+				window.setTimeout(Callback(UI, UI.onResize),0);
 			}
 		};
 		loadFile("image",path+".png",function(arg) {
@@ -728,6 +727,7 @@ var UI = {
 		for(var i=this.windows.length; i-->0; ) {
 			var window = this.windows[i];
 			window.onResize(evt);
+			window.layout();
 		}
 	},
 	addMessage: function(secs,from,text,tag) {
@@ -919,6 +919,10 @@ UIComponent.prototype = {
 		this.children.push(child);
 		child.setParent(this);
 		this.layout();
+	},
+	addChildren: function(children) {
+		for(var child in children)
+			this.addChild(children[child]);
 	},
 	replaceChild: function(from,to) {
 		var i = this.children.indexOf(from);
@@ -1356,7 +1360,7 @@ function UIChoiceMenu(title,tools,view) {
 	if(title) rows.push(new UILabel(title));
 	for(var tool in tools) {
 		tool = tools[tool];
-		var name = tool.prototype.name;
+		var name = tool.prototype? tool.prototype.name: tool.name;
 		assert(name);
 		rows.push(new UIButton(name,(function(name) { return function() { self.setTool(name); }; })(name),"tools|"+name));
 	}
@@ -1376,13 +1380,14 @@ UIChoiceMenu.prototype = {
 		this.window().walk(function(ctrl) {
 				if(ctrl.tag && startsWith(ctrl.tag,"tools|"))
 					ctrl.setActive(ctrl.tag == "tools|"+name);
-				return true;
 			});
-		for(var t in this.tools)
-			if(this.tools[t].prototype.name == name) {
-				this.view.tool = new this.tools[t](this.view);
+		for(var t in this.tools) {
+			t = this.tools[t];
+			if((t.prototype? t.prototype.name: t.name) == name) {
+				this.view.tool = t.prototype? new t(this.view): t;
 				break;
 			}
+		}
 		assert(this.view.tool,"bad tool type: "+name);
 		if(this.view.tool.start)
 			this.view.tool.start();

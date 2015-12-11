@@ -152,6 +152,13 @@ function init(canvas) {
 					d = Math.min(Math.max(d / 2, -1), 1);
 					handleEvent("onMouseWheel",evt,d*100);
 				}
+			},
+			onVisibilityChange = function(evt) {
+				evt.cancelBubble = true;
+				evt.preventDefault();
+				handleEvent("onVisibilityChange", evt, !(document.hidden || document.mozHidden || document.webkitHidden || false));
+				schedule.run();
+				return false;
 			};
 		var loaded = Waiter(function() {
 				canvas.addEventListener("mousedown",onMouseDown,true);
@@ -165,6 +172,16 @@ function init(canvas) {
 				canvas.addEventListener("keydown",onKeyDown,true);
 				canvas.addEventListener("keyup",onKeyUp,true);
 				canvas.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
+				var window_visibility = {
+					hidden: "visibilitychange",
+					mozHidden: "mozvisibilitychange",
+					webkitHidden: "webkitvisibilitychange",
+				};
+				for (var wv in window_visibility)
+					if (wv in document) {
+						document.addEventListener(window_visibility[wv],onVisibilityChange,true);
+						break;
+					}
 				if(!canvas.tabIndex <= 0)
 					canvas.tabIndex = 1;
 				canvas.focus();
@@ -234,8 +251,17 @@ function drawLogo(ctx,alpha) {
 	}
 }
 
+function startRenderLoop() {
+	loop.enabled = true;
+	loop();
+}
+
+function stopRenderLoop() {
+	loop.enabled = false;
+}
+
 function loop() {
-	if(fail.error) return;
+	if(fail.error || !loop.enabled) return;
 	try {
 		window.requestAnimFrame(loop);
 		schedule.run();
@@ -268,7 +294,7 @@ function loadLoop() {
 			loading = false;
 			if(splash)
 				splash.fade = now();
-			loop();
+			startRenderLoop();
 			return;
 		}
 		window.requestAnimFrame(loadLoop);
