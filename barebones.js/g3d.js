@@ -307,15 +307,18 @@ G3DMesh.prototype = {
 			gl.disable(gl.CULL_FACE);
 		else
 			gl.enable(gl.CULL_FACE);
-		gl.bindTexture(gl.TEXTURE_2D,op==gl.LINES? programs.blankTex: untextured? programs.blankTex: this.texture);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
 		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);			
 		gl.vertexAttribPointer(program.normal,3,gl.FLOAT,false,3*4,this.vertexCount*3*4);
-		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
-		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
+		if (this.tVbo) {
+			gl.bindTexture(gl.TEXTURE_2D,(untextured || !this.texture || op==gl.LINES)? programs.blankTex: this.texture);
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
+			gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
+		}
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.iVbo);
 		gl.drawElements(op,this.indexCount,gl.UNSIGNED_SHORT,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
+		gl.bindBuffer(gl.ARRAY_BUFFER,null);		
 	},
 	_drawLerp: function(program,t,untextured,op) {
 		var frame1 = Math.floor(t*this.frameCount),
@@ -326,17 +329,20 @@ G3DMesh.prototype = {
 			gl.disable(gl.CULL_FACE);
 		else
 			gl.enable(gl.CULL_FACE);
-		gl.bindTexture(gl.TEXTURE_2D,untextured? programs.blankTex: this.texture);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vnVbo);
 		gl.vertexAttribPointer(program.normal1,3,gl.FLOAT,false,3*4,(frame1+this.frameCount)*this.vertexCount*3*4);
 		gl.vertexAttribPointer(program.normal2,3,gl.FLOAT,false,3*4,(frame2+this.frameCount)*this.vertexCount*3*4);
 		gl.vertexAttribPointer(program.vertex1,3,gl.FLOAT,false,3*4,frame1*this.vertexCount*3*4);
-		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame2*this.vertexCount*3*4);			
-		gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
-		gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
+		gl.vertexAttribPointer(program.vertex2,3,gl.FLOAT,false,3*4,frame2*this.vertexCount*3*4);
+		if (this.tVbo) {
+			gl.bindTexture(gl.TEXTURE_2D,(untextured || !this.texture || op==gl.LINES)? programs.blankTex: this.texture);
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.tVbo);
+			gl.vertexAttribPointer(program.texCoord,2,gl.FLOAT,false,0,0);
+		}
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.iVbo);
 		gl.drawElements(op,this.indexCount,gl.UNSIGNED_SHORT,0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
+		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 	},
 	_drawNormals: function(program,t) {
 		if(!this.drawNormalsVbo) {

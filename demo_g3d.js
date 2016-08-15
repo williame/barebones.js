@@ -94,39 +94,35 @@ DemoG3D.prototype = {
 				colour: OPAQUE,
 				fogColour: [0.2,0.2,0.2,1.0],
 				fogDensity: this.showNormals? 0: 0.02,
-				lightColour: this.showNormals? [1,0,0,1]: [1,1,1,1],
-				lightPos: [-0.5,1,1],
-				ambientLight: this.showNormals? [0,0.6,0,1]: [0.2,0.2,0.2,1],
-				diffuseLight: [0.6,0.6,0.6,1],
+				lightColour: this.showNormals? [1,0,0,1]: [1,0,0,1],
+				lightPos: mat4_vec3_multiply(this.uniforms.pMatrix, [0,10,-10]),
+				ambientLight: this.showNormals? [0,0.6,0,1]: [0.0,0.0,0.0,1],
+				diffuseLight: [1,1,1,1],
 				specularLight: [0,0,0.2,1],
+				shininess: 1,
 			};
 		gl.lineWidth(1.0);
 		if(this.showGrid) {
-			var d = 50;
+			var d = 5;
 			if(!this.gridLines) {
 				var	origin = d/2,
-					vertices = new Float32Array(d*3*2*2+6*3),
-					ofs = 0,
-					emit = function(x,y,z) {
-						vertices[ofs++] = x;
-						vertices[ofs++] = y;
-						vertices[ofs++] = z;
-					}
-				emit(-origin,0,-origin);
-				emit(origin-1,0,origin-1);
-				emit(origin-1,0,-origin);
-				emit(-origin,0,-origin);
-				emit(-origin,0,origin-1);
-				emit(origin-1,0,origin-1);
+					vertices = [],
+					ofs = 0;
+				vertices.push(-origin,0,-origin);
+				vertices.push(origin,0,origin);
+				vertices.push(origin,0,-origin);
+				vertices.push(-origin,0,-origin);
+				vertices.push(-origin,0,origin);
+				vertices.push(origin,0,origin);
 				for(var line=0, i=0; line<d; line++) {
-					emit(-origin,0,line-origin);
-					emit(origin-1,0,line-origin);
-					emit(line-origin,0,-origin);
-					emit(line-origin,0,origin-1);
+					vertices.push(-origin,0,line-origin);
+					vertices.push(origin,0,line-origin);
+					vertices.push(line-origin,0,-origin);
+					vertices.push(line-origin,0,origin);
 				}
 				this.gridLines = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER,this.gridLines);
-				gl.bufferData(gl.ARRAY_BUFFER,vertices,gl.STATIC_DRAW);
+				gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices),gl.STATIC_DRAW);
 			}
 			programs.solidFill(function(program) {
 				gl.bindBuffer(gl.ARRAY_BUFFER,this.gridLines);
